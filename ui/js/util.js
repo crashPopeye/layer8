@@ -15,26 +15,6 @@ export function ago(iso) {
   return `${Math.floor(s / 86400)}d`;
 }
 
-const typing = (el) =>
-  el instanceof HTMLElement && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
-
-/** Single-key shortcuts, ignored while typing or when a modifier is held. */
-export function useKeys(map, enabled = true) {
-  useEffect(() => {
-    if (!enabled) return;
-    const onKey = (e) => {
-      if (e.metaKey || e.ctrlKey || e.altKey || typing(e.target)) return;
-      const fn = map[e.key.toLowerCase()];
-      if (fn) {
-        e.preventDefault();
-        fn();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  });
-}
-
 /** Esc closes a sheet wherever focus is. */
 export function useEscape(onClose) {
   useEffect(() => {
