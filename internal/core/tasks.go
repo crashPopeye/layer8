@@ -41,8 +41,39 @@ func (a *App) uniqueSlug(base string) string {
 	return slug
 }
 
-// AddWorkspace registers any folder. Git repos get worktrees per task.
-func (a *App) AddWorkspace(ctx context.Context, path string) (store.Workspace, error) {
+func (a *App) AddProject(name string) (store.Project, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return store.Project{}, errors.New("a project needs a name")
+	}
+	p, err := a.Store.InsertProject(name)
+	a.bus.Changed()
+	return p, err
+}
+
+// RemoveProject forgets a project, its folders and their tasks. Files and branches are kept.
+func (a *App) RemoveProject(id string) error {
+	folders, err := a.Store.Folders()
+	if err != nil {
+		return err
+	}
+	inProject := map[string]bool{}
+	for _, f := range folders {
+		inProject[f.ID] = f.ProjectID == id
+	}
+	if err := a.releaseTasks(func(t store.Task) bool { return inProject[t.FolderID] }); err != nil {
+		return err
+	}
+	err = a.Store.DeleteProject(id)
+	a.bus.Changed()
+	return err
+}
+
+// AddFolder adds any folder to a project. Git repos get worktrees per task.
+func (a *App) AddFolder(ctx context.Context, projectID, path string) (store.Folder, error) {
+	if _, err := a.Store.Project(projectID); err != nil {
+		return store.Folder{}, errors.New("unknown project")
+	}
 	path = strings.TrimSpace(path)
 	if strings.HasPrefix(path, "~/") {
 		home, _ := os.UserHomeDir()
@@ -50,10 +81,10 @@ func (a *App) AddWorkspace(ctx context.Context, path string) (store.Workspace, e
 	}
 	abs, err := filepath.Abs(path)
 	if err != nil {
-		return store.Workspace{}, err
+		return store.Folder{}, err
 	}
 	if fi, err := os.Stat(abs); err != nil || !fi.IsDir() {
-		return store.Workspace{}, fmt.Errorf("not a folder: %s", abs)
+		return store.Folder{}, fmt.Errorf("not a folder: %s", abs)
 	}
 	// Resolve symlinks so git's toplevel (which is resolved) compares equal.
 	if r, err := filepath.EvalSymlinks(abs); err == nil {
@@ -61,50 +92,58 @@ func (a *App) AddWorkspace(ctx context.Context, path string) (store.Workspace, e
 	}
 	root := gitx.RepoRoot(ctx, abs)
 	isGit := root != "" && filepath.Clean(root) == abs
-	w := store.Workspace{Name: filepath.Base(abs), Path: abs, IsGit: isGit}
+	f := store.Folder{ProjectID: projectID, Name: filepath.Base(abs), Path: abs, IsGit: isGit}
 	if isGit {
-		w.DefaultBranch = gitx.DefaultBranch(ctx, abs)
+		f.DefaultBranch = gitx.DefaultBranch(ctx, abs)
 	}
-	w, err = a.Store.InsertWorkspace(w)
+	f, err = a.Store.InsertFolder(f)
 	a.bus.Changed()
-	return w, err
+	return f, err
 }
 
-func (a *App) RemoveWorkspace(id string) error {
+func (a *App) RemoveFolder(id string) error {
+	if err := a.releaseTasks(func(t store.Task) bool { return t.FolderID == id }); err != nil {
+		return err
+	}
+	err := a.Store.DeleteFolder(id)
+	a.bus.Changed()
+	return err
+}
+
+// releaseTasks closes the sessions of the matching tasks before their rows are deleted,
+// refusing while any of them is working.
+func (a *App) releaseTasks(match func(store.Task) bool) error {
 	tasks, err := a.Store.Tasks()
 	if err != nil {
 		return err
 	}
 	var sessions []store.Session
 	for _, t := range tasks {
-		if t.WorkspaceID == id {
+		if match(t) {
 			sessions = append(sessions, a.taskSessions(t.ID)...)
 		}
 	}
 	for _, s := range sessions {
 		if a.Sessions.Busy(s.ID) {
-			return errors.New("agents are working in this workspace; stop them first")
+			return errors.New("agents are working here; stop them first")
 		}
 	}
-	// Their rows are about to be deleted; close idle processes so none is orphaned.
 	for _, s := range sessions {
 		_ = a.Sessions.Release(s.ID)
 	}
-	err = a.Store.DeleteWorkspace(id)
-	a.bus.Changed()
-	return err
+	return nil
 }
 
 type NewTask struct {
-	WorkspaceID string `json:"workspaceId"`
+	FolderID    string `json:"folderId"`
 	LinearIssue string `json:"linearIssue"`
 	Title       string `json:"title"`
 }
 
 func (a *App) CreateTask(ctx context.Context, in NewTask) (store.Task, error) {
-	ws, err := a.Store.Workspace(in.WorkspaceID)
+	folder, err := a.Store.Folder(in.FolderID)
 	if err != nil {
-		return store.Task{}, errors.New("unknown workspace")
+		return store.Task{}, errors.New("unknown folder")
 	}
 	cfg := a.Config.Get()
 	title := strings.TrimSpace(in.Title)
@@ -112,7 +151,11 @@ func (a *App) CreateTask(ctx context.Context, in NewTask) (store.Task, error) {
 	var lin *store.LinearRef
 	var branchHint string
 	if in.LinearIssue != "" {
-		issue, err := linear.New(cfg.LinearAPIKey).Issue(ctx, in.LinearIssue)
+		lc, err := a.linear(ctx)
+		if err != nil {
+			return store.Task{}, err
+		}
+		issue, err := lc.Issue(ctx, in.LinearIssue)
 		if err != nil {
 			return store.Task{}, err
 		}
@@ -136,8 +179,8 @@ func (a *App) CreateTask(ctx context.Context, in NewTask) (store.Task, error) {
 	}
 	slug := a.uniqueSlug(slugBase)
 	t := store.Task{
-		ID: store.NewID(), WorkspaceID: ws.ID, Slug: slug, Title: title, Linear: lin, Status: "active",
-		ArtifactsPath: filepath.Join(a.Paths.Tasks, slug), WorktreePath: ws.Path,
+		ID: store.NewID(), FolderID: folder.ID, Slug: slug, Title: title, Linear: lin, Status: "active",
+		ArtifactsPath: filepath.Join(a.Paths.Tasks, slug), WorktreePath: folder.Path,
 	}
 	if err := os.MkdirAll(t.ArtifactsPath, 0o755); err != nil {
 		return t, err
@@ -147,16 +190,16 @@ func (a *App) CreateTask(ctx context.Context, in NewTask) (store.Task, error) {
 			return t, err
 		}
 	}
-	if ws.IsGit {
-		def := ws.DefaultBranch
+	if folder.IsGit {
+		def := folder.DefaultBranch
 		if def == "" {
-			def = gitx.DefaultBranch(ctx, ws.Path)
+			def = gitx.DefaultBranch(ctx, folder.Path)
 		}
-		_ = gitx.Fetch(ctx, ws.Path)
-		t.BaseRef = gitx.BaseRef(ctx, ws.Path, def)
+		_ = gitx.Fetch(ctx, folder.Path)
+		t.BaseRef = gitx.BaseRef(ctx, folder.Path, def)
 		t.Branch = gitx.SanitizeBranch(branchHint)
-		t.WorktreePath = filepath.Join(cfg.WorktreeRoot, ws.Name, slug)
-		if err := gitx.AddWorktree(ctx, ws.Path, t.WorktreePath, t.Branch, t.BaseRef); err != nil {
+		t.WorktreePath = filepath.Join(cfg.WorktreeRoot, folder.Name, slug)
+		if err := gitx.AddWorktree(ctx, folder.Path, t.WorktreePath, t.Branch, t.BaseRef); err != nil {
 			return t, err
 		}
 		t.BaseSHA, _ = gitx.MergeBase(ctx, t.WorktreePath, t.BaseRef, "HEAD")
@@ -191,14 +234,14 @@ func (a *App) ArchiveTask(ctx context.Context, id string, removeWorktrees bool) 
 			return errors.New("stop the task's running sessions first")
 		}
 	}
-	ws, wsErr := a.Store.Workspace(t.WorkspaceID)
+	folder, wsErr := a.Store.Folder(t.FolderID)
 	slices, _ := a.Store.TaskSlices(id)
 	for _, x := range slices {
 		if x.TmuxSession != "" {
 			_ = tmux.Kill(ctx, x.TmuxSession)
 		}
-		if removeWorktrees && wsErr == nil && ws.IsGit && x.WorktreePath != t.WorktreePath {
-			if err := gitx.RemoveWorktree(ctx, ws.Path, x.WorktreePath); err != nil {
+		if removeWorktrees && wsErr == nil && folder.IsGit && x.WorktreePath != t.WorktreePath {
+			if err := gitx.RemoveWorktree(ctx, folder.Path, x.WorktreePath); err != nil {
 				return fmt.Errorf("remove worktree of %s (commit or discard its changes first): %w", x.Key, err)
 			}
 		}
@@ -206,8 +249,8 @@ func (a *App) ArchiveTask(ctx context.Context, id string, removeWorktrees bool) 
 	if t.TmuxSession != "" {
 		_ = tmux.Kill(ctx, t.TmuxSession)
 	}
-	if removeWorktrees && wsErr == nil && ws.IsGit && t.WorktreePath != ws.Path {
-		if err := gitx.RemoveWorktree(ctx, ws.Path, t.WorktreePath); err != nil {
+	if removeWorktrees && wsErr == nil && folder.IsGit && t.WorktreePath != folder.Path {
+		if err := gitx.RemoveWorktree(ctx, folder.Path, t.WorktreePath); err != nil {
 			return fmt.Errorf("remove task worktree (commit or discard its changes first): %w", err)
 		}
 	}
@@ -378,6 +421,23 @@ func (a *App) ResumeInTerminal(ctx context.Context, sessionID string) error {
 }
 
 // ---- tokens
+
+// linear signs requests with the OAuth connection when there is one, else the personal API key.
+func (a *App) linear(ctx context.Context) (*linear.Client, error) {
+	cfg := a.Config.Get()
+	auth, err := a.Linear.Authorization(ctx, cfg.LinearClientID)
+	if err != nil {
+		return nil, err
+	}
+	if auth == "" {
+		auth = cfg.LinearAPIKey
+	}
+	return linear.New(auth), nil
+}
+
+func (a *App) hasLinear() bool {
+	return a.Linear.Connected() || a.Config.Get().LinearAPIKey != ""
+}
 
 func (a *App) githubToken() (string, error) {
 	return github.Token(a.Config.Get().GitHubToken)

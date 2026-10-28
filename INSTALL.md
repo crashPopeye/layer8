@@ -43,13 +43,13 @@ The first time it opens, macOS shows a **"Background Items Added"** notice for l
 ## 3. First launch
 
 1. Press **,** (comma) to open Settings.
-2. **Workspaces:** click **Choose folder…** and pick a project folder. Any folder works. Git repositories also get a separate worktree for each task and each PR.
-3. **Linear API key:** in Linear, open **Settings → Security & access → Personal API keys**, create a key and paste it here.
+2. **Projects:** type a project name, click **Add project**, and pick its folder. Add more folders to a project with **Add folder…** (for example a backend and a frontend repo). Any folder works. Git repositories also get a separate worktree for each task and each PR.
+3. **Linear:** in Linear, open **Settings → API → OAuth applications**, create an application with the callback URL `http://127.0.0.1:7878/api/linear/callback`, paste its client ID and click **Connect Linear**. Or paste a personal API key from **Settings → Security & access → Personal API keys**.
 4. **Terminal** and **Editor:** pick the apps you use.
 5. **Command line:** click **Install the layer8 command**, then try `layer8 help` in a terminal.
 6. Click **Save**.
 
-Press **N** to start a task from one of your Linear tickets.
+Press **N** to start a task from one of your Linear tickets: pick the project, the folder if the project has several, then the ticket.
 
 The first time you click **Terminal**, macOS asks whether layer8 may control Terminal (or iTerm). Click **OK**: this is how layer8 opens a window in the task's folder.
 

@@ -28,15 +28,15 @@ func (a *App) SyncAll(ctx context.Context) {
 		if t.Status != "active" || t.Branch == "" {
 			continue
 		}
-		ws, err := a.Store.Workspace(t.WorkspaceID)
-		if err != nil || !ws.IsGit {
+		folder, err := a.Store.Folder(t.FolderID)
+		if err != nil || !folder.IsGit {
 			continue
 		}
-		if !fetched[ws.ID] {
-			if err := gitx.Fetch(ctx, ws.Path); err != nil {
-				log.Printf("fetch %s: %v", ws.Path, err)
+		if !fetched[folder.ID] {
+			if err := gitx.Fetch(ctx, folder.Path); err != nil {
+				log.Printf("fetch %s: %v", folder.Path, err)
 			}
-			fetched[ws.ID] = true
+			fetched[folder.ID] = true
 		}
 		a.syncTask(ctx, t)
 	}
@@ -48,14 +48,14 @@ func (a *App) SyncTask(ctx context.Context, taskID string) error {
 	if err != nil {
 		return err
 	}
-	ws, err := a.Store.Workspace(t.WorkspaceID)
+	folder, err := a.Store.Folder(t.FolderID)
 	if err != nil {
 		return err
 	}
-	if !ws.IsGit {
-		return errors.New("not a git workspace")
+	if !folder.IsGit {
+		return errors.New("not a git folder")
 	}
-	if err := gitx.Fetch(ctx, ws.Path); err != nil {
+	if err := gitx.Fetch(ctx, folder.Path); err != nil {
 		return err
 	}
 	a.syncTask(ctx, t)
@@ -108,11 +108,11 @@ func (a *App) syncSlice(ctx context.Context, t store.Task, x store.Slice, push b
 }
 
 func (a *App) retargetPR(ctx context.Context, t store.Task, x store.Slice, base string) error {
-	ws, err := a.Store.Workspace(t.WorkspaceID)
+	folder, err := a.Store.Folder(t.FolderID)
 	if err != nil {
 		return err
 	}
-	owner, repo, ok := gitx.OriginRepo(ctx, ws.Path)
+	owner, repo, ok := gitx.OriginRepo(ctx, folder.Path)
 	if !ok {
 		return errors.New("origin is not on GitHub")
 	}

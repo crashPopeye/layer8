@@ -1,6 +1,7 @@
 package store
 
 import (
+	"database/sql"
 	"path/filepath"
 	"testing"
 )
@@ -17,14 +18,18 @@ func open(t *testing.T) *Store {
 
 func TestRoundTrip(t *testing.T) {
 	s := open(t)
-	w, err := s.InsertWorkspace(Workspace{Name: "w", Path: "/w", IsGit: true, DefaultBranch: "main"})
+	p, err := s.InsertProject("p")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.InsertWorkspace(Workspace{Name: "w", Path: "/w"}); err == nil {
+	w, err := s.InsertFolder(Folder{ProjectID: p.ID, Name: "w", Path: "/w", IsGit: true, DefaultBranch: "main"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.InsertFolder(Folder{Name: "w", Path: "/w"}); err == nil {
 		t.Fatal("duplicate path should fail")
 	}
-	task, err := s.InsertTask(Task{WorkspaceID: w.ID, Slug: "eng-1", Title: "T", Linear: &LinearRef{Identifier: "ENG-1"},
+	task, err := s.InsertTask(Task{FolderID: w.ID, Slug: "eng-1", Title: "T", Linear: &LinearRef{Identifier: "ENG-1"},
 		WorktreePath: "/wt", ArtifactsPath: "/a", Status: "active"})
 	if err != nil {
 		t.Fatal(err)
@@ -76,9 +81,44 @@ func TestRoundTrip(t *testing.T) {
 	if len(cs) != 1 || cs[0].Status != "sent" {
 		t.Fatalf("comments %+v", cs)
 	}
-	// Deleting the workspace cascades.
-	s.DeleteWorkspace(w.ID)
+	if err := s.DeleteProject(p.ID); err != nil {
+		t.Fatal(err)
+	}
 	if ts, _ := s.Tasks(); len(ts) != 0 {
 		t.Fatal("cascade failed")
+	}
+}
+
+func TestMigrateWorkspaces(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "old.db")
+	db, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(`
+CREATE TABLE workspaces (id TEXT PRIMARY KEY, name TEXT NOT NULL, path TEXT NOT NULL UNIQUE,
+  is_git INTEGER NOT NULL, default_branch TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL);
+CREATE TABLE tasks (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  slug TEXT NOT NULL UNIQUE, title TEXT NOT NULL, linear TEXT NOT NULL DEFAULT '',
+  branch TEXT NOT NULL DEFAULT '', base_ref TEXT NOT NULL DEFAULT '', base_sha TEXT NOT NULL DEFAULT '',
+  worktree_path TEXT NOT NULL, artifacts_path TEXT NOT NULL, tmux_session TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL, sync_state TEXT NOT NULL DEFAULT '', sync_message TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL);
+INSERT INTO workspaces VALUES ('w1','api','/api',1,'main','t');
+INSERT INTO tasks (id,workspace_id,slug,title,worktree_path,artifacts_path,status,created_at) VALUES ('t1','w1','s','T','/wt','/a','active','t');`)
+	db.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	ps, _ := s.Projects()
+	f, _ := s.Folder("w1")
+	task, _ := s.Task("t1")
+	if len(ps) != 1 || ps[0].Name != "api" || f.ProjectID != ps[0].ID || task.FolderID != "w1" {
+		t.Fatalf("projects %+v folder %+v task %+v", ps, f, task)
 	}
 }

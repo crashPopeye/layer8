@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"html"
 	"io"
 	"log"
 	"net/http"
@@ -14,7 +16,6 @@ import (
 	"time"
 
 	"github.com/crashPopeye/layer8/internal/config"
-	"github.com/crashPopeye/layer8/internal/linear"
 	"github.com/crashPopeye/layer8/internal/store"
 )
 
@@ -26,23 +27,32 @@ type Hooks struct {
 }
 
 type State struct {
-	Version    string            `json:"version"`
-	Workspaces []store.Workspace `json:"workspaces"`
-	Tasks      []store.Task      `json:"tasks"`
-	Slices     []store.Slice     `json:"slices"`
-	Sessions   []store.Session   `json:"sessions"`
-	Approvals  []store.Approval  `json:"approvals"`
-	Running    int               `json:"running"`
-	Queued     int               `json:"queued"`
-	MaxRunning int               `json:"maxRunning"`
-	HasLinear  bool              `json:"hasLinear"`
+	Version     string           `json:"version"`
+	Projects    []store.Project  `json:"projects"`
+	Folders     []store.Folder   `json:"folders"`
+	Tasks       []store.Task     `json:"tasks"`
+	Slices      []store.Slice    `json:"slices"`
+	Sessions    []store.Session  `json:"sessions"`
+	Approvals   []store.Approval `json:"approvals"`
+	Running     int              `json:"running"`
+	Queued      int              `json:"queued"`
+	MaxRunning  int              `json:"maxRunning"`
+	HasLinear   bool             `json:"hasLinear"`
+	LinearOAuth bool             `json:"linearOAuth"` // connected with "Connect Linear" rather than an API key
+}
+
+func (a *App) linearRedirect() string {
+	return fmt.Sprintf("http://127.0.0.1:%d/api/linear/callback", a.Config.Get().Port)
 }
 
 func (a *App) State() (State, error) {
 	var s State
 	var err error
 	s.Version = a.Version
-	if s.Workspaces, err = a.Store.Workspaces(); err != nil {
+	if s.Projects, err = a.Store.Projects(); err != nil {
+		return s, err
+	}
+	if s.Folders, err = a.Store.Folders(); err != nil {
 		return s, err
 	}
 	if s.Tasks, err = a.Store.Tasks(); err != nil {
@@ -60,7 +70,7 @@ func (a *App) State() (State, error) {
 	s.Running, s.Queued = a.Sessions.Counts()
 	cfg := a.Config.Get()
 	s.MaxRunning = cfg.MaxConcurrentSessions
-	s.HasLinear = cfg.LinearAPIKey != ""
+	s.HasLinear, s.LinearOAuth = a.hasLinear(), a.Linear.Connected()
 	return s, nil
 }
 
@@ -198,27 +208,77 @@ func (a *App) Handler(h Hooks) http.Handler {
 		go h.Shutdown()
 		return nil, nil
 	})
-	route("POST /api/workspaces", func(r *http.Request) (any, error) {
+	route("POST /api/projects", func(r *http.Request) (any, error) {
+		var in struct{ Name string }
+		if err := readJSON(r, &in); err != nil {
+			return nil, err
+		}
+		return a.AddProject(in.Name)
+	})
+	route("DELETE /api/projects/{id}", func(r *http.Request) (any, error) {
+		return nil, a.RemoveProject(r.PathValue("id"))
+	})
+	route("POST /api/projects/{id}/folders", func(r *http.Request) (any, error) {
 		var in struct{ Path string }
 		if err := readJSON(r, &in); err != nil {
 			return nil, err
 		}
 		c, cancel := ctx(r, time.Minute)
 		defer cancel()
-		return a.AddWorkspace(c, in.Path)
+		return a.AddFolder(c, r.PathValue("id"), in.Path)
 	})
-	route("DELETE /api/workspaces/{id}", func(r *http.Request) (any, error) {
-		return nil, a.RemoveWorkspace(r.PathValue("id"))
+	route("DELETE /api/folders/{id}", func(r *http.Request) (any, error) {
+		return nil, a.RemoveFolder(r.PathValue("id"))
 	})
 
 	route("GET /api/linear/issues", func(r *http.Request) (any, error) {
 		c, cancel := ctx(r, 30*time.Second)
 		defer cancel()
-		lc := linear.New(a.Config.Get().LinearAPIKey)
+		lc, err := a.linear(c)
+		if err != nil {
+			return nil, err
+		}
 		if q := strings.TrimSpace(r.URL.Query().Get("q")); q != "" {
 			return lc.Search(c, q)
 		}
 		return lc.MyIssues(c)
+	})
+
+	route("POST /api/linear/connect", func(r *http.Request) (any, error) {
+		u, err := a.Linear.AuthorizeURL(a.Config.Get().LinearClientID, a.linearRedirect())
+		if err != nil {
+			return nil, bad(err.Error())
+		}
+		if h.OpenURL != nil {
+			if err := h.OpenURL(u); err != nil {
+				return nil, err
+			}
+		}
+		return map[string]string{"url": u}, nil
+	})
+	route("DELETE /api/linear/connect", func(r *http.Request) (any, error) {
+		err := a.Linear.Disconnect()
+		a.bus.Changed()
+		return nil, err
+	})
+	// The browser lands here from Linear, without layer8's token (the server lets this
+	// path through); the one-time state from AuthorizeURL authenticates it.
+	mux.HandleFunc("GET /api/linear/callback", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		err := errors.New(q.Get("error_description") + " " + q.Get("error"))
+		if q.Get("code") != "" {
+			c, cancel := ctx(r, 30*time.Second)
+			defer cancel()
+			err = a.Linear.Finish(c, a.Config.Get().LinearClientID, a.linearRedirect(), q.Get("state"), q.Get("code"))
+		}
+		a.bus.Changed()
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		msg := "Linear is connected. You can close this tab and go back to layer8."
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			msg = "Linear sign-in failed: " + html.EscapeString(strings.TrimSpace(err.Error()))
+		}
+		fmt.Fprintf(w, `<!doctype html><meta charset="utf-8"><title>layer8</title><body style="font:15px system-ui;padding:48px">%s</body>`, msg)
 	})
 
 	route("POST /api/tasks", func(r *http.Request) (any, error) {

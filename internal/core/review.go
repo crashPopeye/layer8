@@ -34,7 +34,7 @@ func (a *App) reviewTarget(taskID, sliceID string) (dir, base string, err error)
 		return "", "", err
 	}
 	if t.Branch == "" {
-		return "", "", errors.New("not a git workspace")
+		return "", "", errors.New("not a git folder")
 	}
 	ref := t.BaseRef
 	dir = t.WorktreePath

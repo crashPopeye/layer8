@@ -64,8 +64,8 @@ func newHarness(t *testing.T, max int, script func(p *fakeProc, n int, text stri
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { st.Close() })
-	w, _ := st.InsertWorkspace(store.Workspace{Name: "w", Path: "/w"})
-	task, _ := st.InsertTask(store.Task{WorkspaceID: w.ID, Slug: "t", Title: "t", WorktreePath: "/w", ArtifactsPath: "/a", Status: "active"})
+	w, _ := st.InsertFolder(store.Folder{Name: "w", Path: "/w"})
+	task, _ := st.InsertTask(store.Task{FolderID: w.ID, Slug: "t", Title: "t", WorktreePath: "/w", ArtifactsPath: "/a", Status: "active"})
 	h := &harness{t: t, st: st, task: task}
 	start := func(o claude.Options, hd claude.Handlers) (Proc, error) {
 		p := &fakeProc{h: hd, opts: o, script: script, done: make(chan struct{}), intr: make(chan struct{})}

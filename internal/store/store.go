@@ -13,8 +13,16 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-type Workspace struct {
+// Project groups the folders (repos or plain directories) that tasks are started in.
+type Project struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	CreatedAt string `json:"createdAt"`
+}
+
+type Folder struct {
 	ID            string `json:"id"`
+	ProjectID     string `json:"projectId"`
 	Name          string `json:"name"`
 	Path          string `json:"path"`
 	IsGit         bool   `json:"isGit"`
@@ -31,11 +39,11 @@ type LinearRef struct {
 
 type Task struct {
 	ID            string     `json:"id"`
-	WorkspaceID   string     `json:"workspaceId"`
+	FolderID      string     `json:"folderId"`
 	Slug          string     `json:"slug"`
 	Title         string     `json:"title"`
 	Linear        *LinearRef `json:"linear"`
-	Branch        string     `json:"branch"`  // "" when the workspace is not a git repo
+	Branch        string     `json:"branch"`  // "" when the folder is not a git repo
 	BaseRef       string     `json:"baseRef"` // e.g. origin/main
 	BaseSHA       string     `json:"baseSha"` // commit the branch was last rebased onto
 	WorktreePath  string     `json:"worktreePath"`
@@ -124,11 +132,14 @@ type Comment struct {
 }
 
 const schema = `
-CREATE TABLE IF NOT EXISTS workspaces (
+CREATE TABLE IF NOT EXISTS projects (
+  id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS folders (
   id TEXT PRIMARY KEY, name TEXT NOT NULL, path TEXT NOT NULL UNIQUE,
-  is_git INTEGER NOT NULL, default_branch TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL);
+  is_git INTEGER NOT NULL, default_branch TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL,
+  project_id TEXT NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS tasks (
-  id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  id TEXT PRIMARY KEY, folder_id TEXT NOT NULL REFERENCES folders(id) ON DELETE CASCADE,
   slug TEXT NOT NULL UNIQUE, title TEXT NOT NULL, linear TEXT NOT NULL DEFAULT '',
   branch TEXT NOT NULL DEFAULT '', base_ref TEXT NOT NULL DEFAULT '', base_sha TEXT NOT NULL DEFAULT '',
   worktree_path TEXT NOT NULL, artifacts_path TEXT NOT NULL, tmux_session TEXT NOT NULL DEFAULT '',
@@ -173,16 +184,40 @@ func Open(path string) (*Store, error) {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
-	if _, err := db.Exec(schema); err != nil {
+	s := &Store{db: db}
+	if err := s.migrate(); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
-	s := &Store{db: db}
-	if err := s.ensureColumn("slices", "last_pushed_sha", "TEXT NOT NULL DEFAULT ''"); err != nil {
-		db.Close()
-		return nil, err
-	}
 	return s, nil
+}
+
+// migrate creates the schema and upgrades databases from older versions, where each
+// folder was a standalone "workspace": each becomes a project of the same name.
+func (s *Store) migrate() error {
+	var legacy int
+	if err := s.db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type='table' AND name='workspaces'`).Scan(&legacy); err != nil {
+		return err
+	}
+	if legacy > 0 {
+		if _, err := s.db.Exec(`ALTER TABLE workspaces RENAME TO folders; ALTER TABLE tasks RENAME COLUMN workspace_id TO folder_id`); err != nil {
+			return err
+		}
+	}
+	if _, err := s.db.Exec(schema); err != nil {
+		return err
+	}
+	if err := s.ensureColumn("slices", "last_pushed_sha", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := s.ensureColumn("folders", "project_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	_, err := s.db.Exec(`
+INSERT OR IGNORE INTO projects (id, name, created_at)
+  SELECT lower(hex(randomblob(12))), name, created_at FROM folders WHERE project_id = '';
+UPDATE folders SET project_id = (SELECT id FROM projects WHERE projects.name = folders.name) WHERE project_id = ''`)
+	return err
 }
 
 // ensureColumn adds a column to databases created by older versions.
@@ -245,61 +280,115 @@ func linearFrom(s string) *LinearRef {
 
 type scanner interface{ Scan(dest ...any) error }
 
-// ---- workspaces
+// ---- projects
 
-func (s *Store) InsertWorkspace(w Workspace) (Workspace, error) {
-	w.ID, w.CreatedAt = NewID(), Now()
-	_, err := s.db.Exec(`INSERT INTO workspaces VALUES (?,?,?,?,?,?)`, w.ID, w.Name, w.Path, w.IsGit, w.DefaultBranch, w.CreatedAt)
-	if err != nil {
-		return w, fmt.Errorf("add workspace: %w", err)
+func (s *Store) InsertProject(name string) (Project, error) {
+	p := Project{ID: NewID(), Name: name, CreatedAt: Now()}
+	if _, err := s.db.Exec(`INSERT INTO projects (id,name,created_at) VALUES (?,?,?)`, p.ID, p.Name, p.CreatedAt); err != nil {
+		return p, fmt.Errorf("add project: %w", err)
 	}
-	return w, nil
+	return p, nil
 }
 
-func scanWorkspace(r scanner) (Workspace, error) {
-	var w Workspace
-	err := r.Scan(&w.ID, &w.Name, &w.Path, &w.IsGit, &w.DefaultBranch, &w.CreatedAt)
-	return w, err
-}
-
-func (s *Store) Workspaces() ([]Workspace, error) {
-	rows, err := s.db.Query(`SELECT id,name,path,is_git,default_branch,created_at FROM workspaces ORDER BY name`)
+func (s *Store) Projects() ([]Project, error) {
+	rows, err := s.db.Query(`SELECT id,name,created_at FROM projects ORDER BY name`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	out := []Workspace{}
+	out := []Project{}
 	for rows.Next() {
-		w, err := scanWorkspace(rows)
-		if err != nil {
+		var p Project
+		if err := rows.Scan(&p.ID, &p.Name, &p.CreatedAt); err != nil {
 			return nil, err
 		}
-		out = append(out, w)
+		out = append(out, p)
 	}
 	return out, rows.Err()
 }
 
-func (s *Store) Workspace(id string) (Workspace, error) {
-	w, err := scanWorkspace(s.db.QueryRow(`SELECT id,name,path,is_git,default_branch,created_at FROM workspaces WHERE id=?`, id))
+func (s *Store) Project(id string) (Project, error) {
+	var p Project
+	err := s.db.QueryRow(`SELECT id,name,created_at FROM projects WHERE id=?`, id).Scan(&p.ID, &p.Name, &p.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
-		return w, ErrNotFound
+		return p, ErrNotFound
 	}
-	return w, err
+	return p, err
 }
 
-func (s *Store) DeleteWorkspace(id string) error {
-	_, err := s.db.Exec(`DELETE FROM workspaces WHERE id=?`, id)
+// DeleteProject removes a project with its folders; their tasks go with them.
+func (s *Store) DeleteProject(id string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`DELETE FROM folders WHERE project_id=?`, id); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM projects WHERE id=?`, id); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// ---- folders
+
+const folderCols = `id,project_id,name,path,is_git,default_branch,created_at`
+
+func (s *Store) InsertFolder(f Folder) (Folder, error) {
+	f.ID, f.CreatedAt = NewID(), Now()
+	_, err := s.db.Exec(`INSERT INTO folders (`+folderCols+`) VALUES (?,?,?,?,?,?,?)`, f.ID, f.ProjectID, f.Name, f.Path, f.IsGit, f.DefaultBranch, f.CreatedAt)
+	if err != nil {
+		return f, fmt.Errorf("add folder: %w", err)
+	}
+	return f, nil
+}
+
+func scanFolder(r scanner) (Folder, error) {
+	var f Folder
+	err := r.Scan(&f.ID, &f.ProjectID, &f.Name, &f.Path, &f.IsGit, &f.DefaultBranch, &f.CreatedAt)
+	return f, err
+}
+
+func (s *Store) Folders() ([]Folder, error) {
+	rows, err := s.db.Query(`SELECT ` + folderCols + ` FROM folders ORDER BY name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Folder{}
+	for rows.Next() {
+		f, err := scanFolder(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, f)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) Folder(id string) (Folder, error) {
+	f, err := scanFolder(s.db.QueryRow(`SELECT `+folderCols+` FROM folders WHERE id=?`, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return f, ErrNotFound
+	}
+	return f, err
+}
+
+func (s *Store) DeleteFolder(id string) error {
+	_, err := s.db.Exec(`DELETE FROM folders WHERE id=?`, id)
 	return err
 }
 
 // ---- tasks
 
-const taskCols = `id,workspace_id,slug,title,linear,branch,base_ref,base_sha,worktree_path,artifacts_path,tmux_session,status,sync_state,sync_message,created_at`
+const taskCols = `id,folder_id,slug,title,linear,branch,base_ref,base_sha,worktree_path,artifacts_path,tmux_session,status,sync_state,sync_message,created_at`
 
 func scanTask(r scanner) (Task, error) {
 	var t Task
 	var lin string
-	err := r.Scan(&t.ID, &t.WorkspaceID, &t.Slug, &t.Title, &lin, &t.Branch, &t.BaseRef, &t.BaseSHA, &t.WorktreePath,
+	err := r.Scan(&t.ID, &t.FolderID, &t.Slug, &t.Title, &lin, &t.Branch, &t.BaseRef, &t.BaseSHA, &t.WorktreePath,
 		&t.ArtifactsPath, &t.TmuxSession, &t.Status, &t.SyncState, &t.SyncMessage, &t.CreatedAt)
 	t.Linear = linearFrom(lin)
 	return t, err
@@ -311,7 +400,7 @@ func (s *Store) InsertTask(t Task) (Task, error) {
 	}
 	t.CreatedAt = Now()
 	_, err := s.db.Exec(`INSERT INTO tasks (`+taskCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		t.ID, t.WorkspaceID, t.Slug, t.Title, jsonOrEmpty(t.Linear), t.Branch, t.BaseRef, t.BaseSHA, t.WorktreePath,
+		t.ID, t.FolderID, t.Slug, t.Title, jsonOrEmpty(t.Linear), t.Branch, t.BaseRef, t.BaseSHA, t.WorktreePath,
 		t.ArtifactsPath, t.TmuxSession, t.Status, t.SyncState, t.SyncMessage, t.CreatedAt)
 	return t, err
 }
