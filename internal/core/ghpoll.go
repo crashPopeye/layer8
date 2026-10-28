@@ -44,18 +44,18 @@ func (a *App) PollGitHub(ctx context.Context) {
 		if t.Status != "active" || t.Branch == "" {
 			continue
 		}
-		ws, err := a.Store.Workspace(t.WorkspaceID)
+		folder, err := a.Store.Folder(t.FolderID)
 		if err != nil {
 			continue
 		}
-		r, ok := repos[ws.ID]
+		r, ok := repos[folder.ID]
 		if !ok {
-			owner, name, isGH := gitx.OriginRepo(ctx, ws.Path)
+			owner, name, isGH := gitx.OriginRepo(ctx, folder.Path)
 			if !isGH {
 				continue
 			}
 			r = repoRef{owner, name}
-			repos[ws.ID] = r
+			repos[folder.ID] = r
 		}
 		slices, _ := a.Store.TaskSlices(t.ID)
 		for _, x := range slices {
@@ -117,11 +117,11 @@ func (a *App) prContext(ctx context.Context, sliceID string) (store.Slice, store
 	if x.PRNumber == 0 {
 		return x, t, repoRef{}, nil, errors.New("this slice has no pull request yet")
 	}
-	ws, err := a.Store.Workspace(t.WorkspaceID)
+	folder, err := a.Store.Folder(t.FolderID)
 	if err != nil {
 		return x, t, repoRef{}, nil, err
 	}
-	owner, name, ok := gitx.OriginRepo(ctx, ws.Path)
+	owner, name, ok := gitx.OriginRepo(ctx, folder.Path)
 	if !ok {
 		return x, t, repoRef{}, nil, errors.New("origin is not on GitHub")
 	}

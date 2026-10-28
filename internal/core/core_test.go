@@ -51,8 +51,17 @@ func commitFile(t *testing.T, dir, name, content, msg string) string {
 	return git(t, dir, "rev-parse", "HEAD")
 }
 
-// repo makes an upstream with one commit and a clone (the workspace). It returns
+// repo makes an upstream with one commit and a clone (the folder). It returns
 // the clone and a second clone used to push "teammate" commits to main.
+func project(t *testing.T, a *App) string {
+	t.Helper()
+	p, err := a.AddProject("p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p.ID
+}
+
 func repo(t *testing.T) (clone, other string) {
 	root := t.TempDir()
 	upstream := filepath.Join(root, "upstream.git")
@@ -149,11 +158,11 @@ func TestTaskSlicesSyncAndConflicts(t *testing.T) {
 	ctx := context.Background()
 	work, teammate := repo(t)
 
-	ws, err := a.AddWorkspace(ctx, work)
-	if err != nil || !ws.IsGit || ws.DefaultBranch != "main" {
-		t.Fatalf("workspace %+v %v", ws, err)
+	folder, err := a.AddFolder(ctx, project(t, a), work)
+	if err != nil || !folder.IsGit || folder.DefaultBranch != "main" {
+		t.Fatalf("folder %+v %v", folder, err)
 	}
-	task, err := a.CreateTask(ctx, NewTask{WorkspaceID: ws.ID, Title: "Resumable uploads"})
+	task, err := a.CreateTask(ctx, NewTask{FolderID: folder.ID, Title: "Resumable uploads"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -275,8 +284,8 @@ func TestMergedParentReparentsChild(t *testing.T) {
 	a := h.app
 	ctx := context.Background()
 	work, teammate := repo(t)
-	ws, _ := a.AddWorkspace(ctx, work)
-	task, _ := a.CreateTask(ctx, NewTask{WorkspaceID: ws.ID, Title: "Stack"})
+	folder, _ := a.AddFolder(ctx, project(t, a), work)
+	task, _ := a.CreateTask(ctx, NewTask{FolderID: folder.ID, Title: "Stack"})
 	write(t, filepath.Join(task.ArtifactsPath, "plan.md"), planMD)
 	slices, err := a.CreateSlices(ctx, task.ID)
 	if err != nil {
@@ -334,16 +343,20 @@ func TestPlainFolderAndAPI(t *testing.T) {
 		}
 		return res.StatusCode
 	}
-	var ws store.Workspace
-	if code := call("POST", "/api/workspaces", `{"path":"`+dir+`"}`, &ws); code != 200 || ws.IsGit {
-		t.Fatalf("add workspace %d %+v", code, ws)
+	var proj store.Project
+	if code := call("POST", "/api/projects", `{"name":"Notes"}`, &proj); code != 200 || proj.ID == "" {
+		t.Fatalf("add project %d %+v", code, proj)
+	}
+	var folder store.Folder
+	if code := call("POST", "/api/projects/"+proj.ID+"/folders", `{"path":"`+dir+`"}`, &folder); code != 200 || folder.IsGit || folder.ProjectID != proj.ID {
+		t.Fatalf("add folder %d %+v", code, folder)
 	}
 	var task store.Task
-	if code := call("POST", "/api/tasks", `{"workspaceId":"`+ws.ID+`","title":"Notes"}`, &task); code != 200 || task.WorktreePath != ws.Path {
+	if code := call("POST", "/api/tasks", `{"folderId":"`+folder.ID+`","title":"Notes"}`, &task); code != 200 || task.WorktreePath != folder.Path {
 		t.Fatalf("task %d %+v", code, task)
 	}
 	var e map[string]string
-	if code := call("POST", "/api/tasks", `{"workspaceId":"`+ws.ID+`"}`, &e); code != 422 || e["error"] == "" {
+	if code := call("POST", "/api/tasks", `{"folderId":"`+folder.ID+`"}`, &e); code != 422 || e["error"] == "" {
 		t.Fatalf("missing title: %d %v", code, e)
 	}
 	if code := call("POST", "/api/tasks/"+task.ID+"/slices", ``, &e); code != 422 {
@@ -398,8 +411,8 @@ func TestSyncNeverDiscardsRemoteOnlyCommits(t *testing.T) {
 	a := h.app
 	ctx := context.Background()
 	work, teammate := repo(t)
-	ws, _ := a.AddWorkspace(ctx, work)
-	task, _ := a.CreateTask(ctx, NewTask{WorkspaceID: ws.ID, Title: "Remote safety"})
+	folder, _ := a.AddFolder(ctx, project(t, a), work)
+	task, _ := a.CreateTask(ctx, NewTask{FolderID: folder.ID, Title: "Remote safety"})
 	x, err := a.CreateSingleSlice(ctx, task.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -455,8 +468,8 @@ func TestSyncPushesBranchTheUserPushedByHand(t *testing.T) {
 	a := h.app
 	ctx := context.Background()
 	work, teammate := repo(t)
-	ws, _ := a.AddWorkspace(ctx, work)
-	task, _ := a.CreateTask(ctx, NewTask{WorkspaceID: ws.ID, Title: "Hand pushed"})
+	folder, _ := a.AddFolder(ctx, project(t, a), work)
+	task, _ := a.CreateTask(ctx, NewTask{FolderID: folder.ID, Title: "Hand pushed"})
 	x, _ := a.CreateSingleSlice(ctx, task.ID)
 	commitFile(t, x.WorktreePath, "a.txt", "a\n", "work")
 	git(t, x.WorktreePath, "push", "-q", "-u", "origin", x.Branch) // outside layer8: no LastPushedSHA

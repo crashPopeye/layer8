@@ -39,7 +39,8 @@ type Config struct {
 	// Port the daemon listens on, on 127.0.0.1 only. Changing it needs a daemon restart.
 	Port int `json:"port"`
 
-	LinearAPIKey string `json:"linearApiKey"`
+	LinearAPIKey   string `json:"linearApiKey"`
+	LinearClientID string `json:"linearClientId"` // OAuth application for "Connect Linear"
 	// Empty means: ask the gh CLI (`gh auth token`).
 	GitHubToken string `json:"githubToken"`
 
@@ -66,7 +67,7 @@ type Config struct {
 
 // Paths are derived from the home directory; LAYER8_HOME overrides it (tests, multiple profiles).
 type Paths struct {
-	Home, Config, DB, Tasks, Logs, Token string
+	Home, Config, DB, Tasks, Logs, Token, LinearToken string
 }
 
 func ResolvePaths() (Paths, error) {
@@ -79,12 +80,13 @@ func ResolvePaths() (Paths, error) {
 		home = filepath.Join(h, ".layer8")
 	}
 	p := Paths{
-		Home:   home,
-		Config: filepath.Join(home, "config.json"),
-		DB:     filepath.Join(home, "layer8.db"),
-		Tasks:  filepath.Join(home, "tasks"),
-		Logs:   filepath.Join(home, "logs"),
-		Token:  filepath.Join(home, "token"),
+		Home:        home,
+		Config:      filepath.Join(home, "config.json"),
+		DB:          filepath.Join(home, "layer8.db"),
+		Tasks:       filepath.Join(home, "tasks"),
+		Logs:        filepath.Join(home, "logs"),
+		Token:       filepath.Join(home, "token"),
+		LinearToken: filepath.Join(home, "linear-token.json"),
 	}
 	for _, d := range []string{p.Home, p.Tasks, p.Logs} {
 		if err := os.MkdirAll(d, 0o755); err != nil {

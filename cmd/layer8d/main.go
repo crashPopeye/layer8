@@ -54,15 +54,16 @@ func usage() {
 	fmt.Fprint(os.Stderr, strings.TrimLeft(`
 layer8: parallel agent workbench
 
-Workspaces
-  layer8 workspaces                     list
-  layer8 workspace add PATH             any folder; git repos get worktrees
+Projects
+  layer8 projects                       list projects and their folders
+  layer8 project add NAME [PATH...]     a project groups one or more folders
+  layer8 folder add PROJECT PATH        any folder; git repos get worktrees
 
 Tasks
   layer8 status                         agents running, approvals waiting
   layer8 tasks                          tasks with their PRs and sessions
-  layer8 new ENG-123 [-w workspace]     start a task from a Linear ticket
-  layer8 new -t "title" [-w workspace]  start a task without a ticket
+  layer8 new ENG-123 [-p project] [-f folder]     start a task from a Linear ticket
+  layer8 new -t "title" [-p project] [-f folder]  start a task without a ticket
   layer8 split TASK                     create PR slices from the task's plan.md
   layer8 sync [TASK]                    rebase onto the latest default branch
 

@@ -4,7 +4,7 @@ import { useKeys, home, cls } from "./util.js";
 import { TaskView } from "./task.js";
 import { NewTaskSheet, SettingsSheet } from "./sheets.js";
 
-const empty = { workspaces: [], tasks: [], slices: [], sessions: [], approvals: [], running: 0, queued: 0, maxRunning: 6, update: {} };
+const empty = { projects: [], folders: [], tasks: [], slices: [], sessions: [], approvals: [], running: 0, queued: 0, maxRunning: 6, update: {} };
 
 function useAppState() {
   const [state, setState] = useState(empty);
@@ -81,6 +81,11 @@ function App() {
   const [installing, setInstalling] = useState(false);
   const [taskId, setTaskId] = useState(null);
   const [sheet, setSheet] = useState(null);
+  const [newIn, setNewIn] = useState(null);
+  const openNew = (projectId = null) => {
+    setNewIn(projectId);
+    setSheet("new");
+  };
   const [error, setError] = useState(null);
 
   const run = useCallback(async (p) => {
@@ -99,7 +104,7 @@ function App() {
     if (taskId && !state.tasks.some((t) => t.id === taskId && t.status === "active")) setTaskId(null);
   }, [state.tasks, taskId]);
 
-  useKeys({ n: () => setSheet("new"), ",": () => setSheet("settings") }, sheet === null);
+  useKeys({ n: () => openNew(), ",": () => setSheet("settings") }, sheet === null);
 
   const task = state.tasks.find((t) => t.id === taskId) || null;
   const waiting = state.approvals.length;
@@ -123,7 +128,7 @@ function App() {
       </header>
 
       <nav class="rail">
-        <${Rail} state=${state} selected=${taskId} onSelect=${setTaskId} onNew=${() => setSheet("new")} onSettings=${() => setSheet("settings")} />
+        <${Rail} state=${state} selected=${taskId} onSelect=${setTaskId} onNew=${openNew} onSettings=${() => setSheet("settings")} />
       </nav>
 
       <main class="main">
@@ -166,6 +171,7 @@ function App() {
       ${sheet === "new" &&
       html`<${NewTaskSheet}
         state=${state}
+        projectId=${newIn}
         onClose=${() => setSheet(null)}
         onSettings=${() => setSheet("settings")}
         onCreated=${(t) => {
@@ -181,18 +187,24 @@ function App() {
 }
 
 function Rail({ state, selected, onSelect, onNew, onSettings }) {
-  if (!state.workspaces.length) {
+  if (!state.folders.length) {
     return html`<div class="empty">
       <div class="display">Empty</div>
-      Add a folder as a workspace. Any folder works; git repos also get a worktree per task and per PR.
-      <div class="btns"><button class="key" onClick=${onSettings}>Add a workspace</button></div>
+      Create a project and add its folders. Any folder works; git repos also get a worktree per task and per PR.
+      <div class="btns"><button class="key" onClick=${onSettings}>Add a project</button></div>
     </div>`;
   }
   const active = state.tasks.filter((t) => t.status === "active");
-  return state.workspaces.map((ws) => {
-    const tasks = active.filter((t) => t.workspaceId === ws.id);
-    return html`<section key=${ws.id}>
-      <div class="ws-head"><span class="label">${ws.name}</span><span class="faint ellipsis" style="font-size:10.5px">${home(ws.path)}</span></div>
+  return state.projects.map((p) => {
+    const folders = state.folders.filter((f) => f.projectId === p.id);
+    const folderName = Object.fromEntries(folders.map((f) => [f.id, f.name]));
+    const tasks = active.filter((t) => t.folderId in folderName);
+    return html`<section key=${p.id}>
+      <div class="project-head">
+        <span class="label">${p.name}</span>
+        <span class="faint ellipsis">${folders.map((f) => f.name).join(" · ") || "no folders"}</span>
+        <button class="key small ghost" title=${`New task in ${p.name}`} disabled=${!folders.length} onClick=${() => onNew(p.id)}>+</button>
+      </div>
       ${tasks.map((t) => {
         const sessions = state.sessions.filter((s) => s.taskId === t.id);
         const slices = state.slices.filter((x) => x.taskId === t.id);
@@ -203,11 +215,12 @@ function Rail({ state, selected, onSelect, onNew, onSettings }) {
           <span class="lights">${sessions.slice(-6).map((s) => html`<span key=${s.id} class=${cls("sq", s.status)} title=${`${s.title}: ${s.status}`}></span>`)}</span>
           <span class="sub ellipsis">
             ${needs ? html`<span class="waitc">needs approval · </span>` : ""}
+            ${folders.length > 1 ? folderName[t.folderId] + " · " : ""}
             ${slices.length ? `${slices.filter((x) => x.prState === "MERGED").length}/${slices.length} PRs merged` : t.branch || "no git"}
           </span>
         </div>`;
       })}
-      ${!tasks.length && html`<div class="task-row" onClick=${onNew}><span class="faint">+</span><span class="faint">new task</span></div>`}
+      ${!tasks.length && folders.length > 0 && html`<div class="task-row" onClick=${() => onNew(p.id)}><span class="faint">+</span><span class="faint">new task</span></div>`}
     </section>`;
   });
 }

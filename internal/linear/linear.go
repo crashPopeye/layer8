@@ -16,13 +16,13 @@ import (
 const endpoint = "https://api.linear.app/graphql"
 
 type Client struct {
-	APIKey   string
+	Auth     string // Authorization header: a personal API key, or "Bearer " + an OAuth token
 	HTTP     *http.Client
 	Endpoint string // tests override
 }
 
-func New(apiKey string) *Client {
-	return &Client{APIKey: apiKey, HTTP: &http.Client{Timeout: 30 * time.Second}, Endpoint: endpoint}
+func New(auth string) *Client {
+	return &Client{Auth: auth, HTTP: &http.Client{Timeout: 30 * time.Second}, Endpoint: endpoint}
 }
 
 type State struct {
@@ -67,8 +67,8 @@ type Issue struct {
 }
 
 func (c *Client) gql(ctx context.Context, query string, vars map[string]any, out any) error {
-	if c.APIKey == "" {
-		return errors.New("Linear API key is not configured")
+	if c.Auth == "" {
+		return errors.New("Linear is not connected")
 	}
 	body, _ := json.Marshal(map[string]any{"query": query, "variables": vars})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.Endpoint, bytes.NewReader(body))
@@ -76,8 +76,7 @@ func (c *Client) gql(ctx context.Context, query string, vars map[string]any, out
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	// Personal API keys go in Authorization without a Bearer prefix.
-	req.Header.Set("Authorization", c.APIKey)
+	req.Header.Set("Authorization", c.Auth)
 	res, err := c.HTTP.Do(req)
 	if err != nil {
 		return fmt.Errorf("linear: %w", err)
@@ -133,7 +132,7 @@ func flatten(in []rawSummary) []IssueSummary {
 	return out
 }
 
-// MyIssues lists open issues assigned to the API key's user, most recently updated first.
+// MyIssues lists open issues assigned to the signed-in user, most recently updated first.
 func (c *Client) MyIssues(ctx context.Context) ([]IssueSummary, error) {
 	var data struct {
 		Viewer struct {

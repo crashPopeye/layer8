@@ -62,12 +62,12 @@ func (a *App) CreateSlices(ctx context.Context, taskID string) ([]store.Slice, e
 	if err != nil {
 		return nil, err
 	}
-	ws, err := a.Store.Workspace(t.WorkspaceID)
+	folder, err := a.Store.Folder(t.FolderID)
 	if err != nil {
 		return nil, err
 	}
-	if !ws.IsGit || t.Branch == "" {
-		return nil, errors.New("PR slices need a git workspace")
+	if !folder.IsGit || t.Branch == "" {
+		return nil, errors.New("PR slices need a git folder")
 	}
 	md, err := os.ReadFile(filepath.Join(t.ArtifactsPath, "plan.md"))
 	if err != nil {
@@ -96,8 +96,11 @@ func (a *App) CreateSlices(ctx context.Context, taskID string) ([]store.Slice, e
 	// Linear first, so a Linear failure creates nothing on disk. Created sub-issues are
 	// recorded right away, so a retry after a later failure reuses them.
 	subIssues := loadSubIssues(t.ArtifactsPath)
-	if cfg.CreateLinearSubIssues && t.Linear != nil && cfg.LinearAPIKey != "" {
-		lc := linear.New(cfg.LinearAPIKey)
+	if cfg.CreateLinearSubIssues && t.Linear != nil && a.hasLinear() {
+		lc, err := a.linear(ctx)
+		if err != nil {
+			return nil, err
+		}
 		var parent *linear.Issue
 		for _, p := range todo {
 			if subIssues[p.ID] != nil {
@@ -120,7 +123,7 @@ func (a *App) CreateSlices(ctx context.Context, taskID string) ([]store.Slice, e
 		}
 	}
 
-	_ = gitx.Fetch(ctx, ws.Path)
+	_ = gitx.Fetch(ctx, folder.Path)
 	pos := len(existing)
 	for _, p := range todo {
 		x := store.Slice{TaskID: t.ID, Key: p.ID, Title: p.Title, Position: pos, DependsOn: p.DependsOn, ParentKey: p.Parent()}
@@ -139,8 +142,8 @@ func (a *App) CreateSlices(ctx context.Context, taskID string) ([]store.Slice, e
 			}
 			base = parent.Branch
 		}
-		x.WorktreePath = filepath.Join(cfg.WorktreeRoot, ws.Name, t.Slug+"--"+p.ID)
-		if err := gitx.AddWorktree(ctx, ws.Path, x.WorktreePath, x.Branch, base); err != nil {
+		x.WorktreePath = filepath.Join(cfg.WorktreeRoot, folder.Name, t.Slug+"--"+p.ID)
+		if err := gitx.AddWorktree(ctx, folder.Path, x.WorktreePath, x.Branch, base); err != nil {
 			return nil, fmt.Errorf("worktree for %s: %w", p.ID, err)
 		}
 		x.BaseSHA, _ = gitx.MergeBase(ctx, x.WorktreePath, base, "HEAD")
@@ -183,7 +186,7 @@ func (a *App) CreateSingleSlice(ctx context.Context, taskID string) (store.Slice
 		return store.Slice{}, err
 	}
 	if t.Branch == "" {
-		return store.Slice{}, errors.New("PRs need a git workspace")
+		return store.Slice{}, errors.New("PRs need a git folder")
 	}
 	existing, _ := a.Store.TaskSlices(taskID)
 	for _, x := range existing {
@@ -419,11 +422,11 @@ func (a *App) OpenPR(ctx context.Context, sliceID string) (store.Slice, error) {
 	if err != nil {
 		return x, err
 	}
-	ws, err := a.Store.Workspace(t.WorkspaceID)
+	folder, err := a.Store.Folder(t.FolderID)
 	if err != nil {
 		return x, err
 	}
-	owner, repo, ok := gitx.OriginRepo(ctx, ws.Path)
+	owner, repo, ok := gitx.OriginRepo(ctx, folder.Path)
 	if !ok {
 		return x, errors.New("origin is not a GitHub repository")
 	}

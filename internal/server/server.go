@@ -99,7 +99,8 @@ func (s *Server) Handler() http.Handler {
 			static.ServeHTTP(w, r)
 			return
 		}
-		if !s.tokenOK(r) {
+		// Linear's OAuth redirect can't carry the token; its one-time state authenticates it.
+		if !s.tokenOK(r) && r.URL.Path != "/api/linear/callback" {
 			jsonError(w, http.StatusUnauthorized, "bad or missing token")
 			return
 		}
