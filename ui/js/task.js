@@ -14,7 +14,7 @@ const TABS = [
   ["docs", "Docs"],
 ];
 
-export function TaskView({ state, task, run, keysEnabled }) {
+export function TaskView({ state, task, run }) {
   const slices = state.slices.filter((x) => x.taskId === task.id);
   const [ctx, setCtx] = useState(""); // "" = the task itself, else a slice id
   const [tab, setTab] = useState("sessions");
@@ -40,25 +40,6 @@ export function TaskView({ state, task, run, keysEnabled }) {
     }
   };
   const open = (target) => run(post("/api/open", { taskId: task.id, sliceId: slice ? slice.id : "", target }));
-  const pending = state.approvals.filter((a) => session && a.sessionId === session.id);
-
-  useKeys(
-    {
-      r: () => !slice && start("research"),
-      p: () => !slice && start("plan"),
-      i: () => start("implement"),
-      t: () => open("terminal"),
-      e: () => open("editor"),
-      a: () => pending[0] && run(post(`/api/approvals/${pending[0].id}`, { allow: true })),
-      d: () => pending[0] && run(post(`/api/approvals/${pending[0].id}`, { allow: false })),
-      1: () => setTab("sessions"),
-      2: () => setTab("changes"),
-      3: () => setTab("pr"),
-      4: () => setTab("docs"),
-    },
-    keysEnabled,
-  );
-
   const where = slice || task;
   const syncNote = where.syncState && where.syncState !== "ok" ? `${where.syncState}${where.syncMessage ? ": " + where.syncMessage : ""}` : where.syncMessage;
 
@@ -66,10 +47,10 @@ export function TaskView({ state, task, run, keysEnabled }) {
     <div style="display:grid;grid-template-columns:minmax(0,1fr) 300px;flex:1;min-height:0">
       <div class="pane" style="min-width:0">
         <div class="tabs" role="tablist">
-          ${TABS.map(([id, label], i) => {
+          ${TABS.map(([id, label]) => {
             const n = id === "sessions" ? sessions.length : id === "pr" && slice && slice.openThreads ? slice.openThreads : null;
             return html`<button key=${id} class="tab" role="tab" aria-selected=${tab === id} onClick=${() => setTab(id)}>
-              <kbd>${i + 1}</kbd> ${label}${n ? html` <span class="n">(${n})</span>` : ""}
+              ${label}${n ? html` <span class="n">(${n})</span>` : ""}
             </button>`;
           })}
           <span class="grow"></span>
