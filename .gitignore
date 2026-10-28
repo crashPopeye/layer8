@@ -1,6 +1,4 @@
-node_modules/
-dist/
-app/src-tauri/target/
-app/src-tauri/gen/
+/build/out/
+/dist/
+*.test
 .DS_Store
-*.log
