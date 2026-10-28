@@ -14,7 +14,7 @@ const TABS = [
   ["docs", "Docs"],
 ];
 
-export function TaskView({ state, task, run }) {
+export function TaskView({ state, task, run, commands }) {
   const slices = state.slices.filter((x) => x.taskId === task.id);
   const [ctx, setCtx] = useState(""); // "" = the task itself, else a slice id
   const [tab, setTab] = useState("sessions");
@@ -42,6 +42,43 @@ export function TaskView({ state, task, run }) {
   const open = (target) => run(post("/api/open", { taskId: task.id, sliceId: slice ? slice.id : "", target }));
   const where = slice || task;
   const syncNote = where.syncState && where.syncState !== "ok" ? `${where.syncState}${where.syncMessage ? ": " + where.syncMessage : ""}` : where.syncMessage;
+  const resolve = async () => {
+    const s = await run(post(`/api/slices/${slice.id}/resolve`));
+    if (s) {
+      setSessionId(s.id);
+      setTab("sessions");
+    }
+  };
+
+  const actionGroups = [
+    [
+      !slice && { label: "Research", run: () => start("research") },
+      !slice && { label: "Plan", run: () => start("plan") },
+      { label: slice ? "Implement " + slice.key : "Implement", run: () => start("implement") },
+    ],
+    !slice && isGit ? [
+      { label: "Split into PRs", title: "Create one stacked branch + session per PR listed in plan.md", run: () => run(post(`/api/tasks/${task.id}/slices`)) },
+      !slices.length && { label: "Single PR", title: "Track this task's own branch as a single PR", run: () => run(post(`/api/tasks/${task.id}/single-slice`)) },
+    ] : [],
+    [
+      { label: "Terminal", run: () => open("terminal") },
+      { label: "Editor", run: () => open("editor") },
+      isGit && { label: "Sync", title: "Fetch and rebase this task's branches onto the latest default branch", run: () => run(post(`/api/tasks/${task.id}/sync`)) },
+      slice && slice.syncState === "conflict" && { label: "Resolve conflicts", primary: true, run: resolve },
+    ],
+  ].map((g) => g.filter(Boolean)).filter((g) => g.length);
+
+  const pick = (id) => {
+    setCtx(id);
+    setSessionId(null);
+  };
+  commands.current = [
+    ...actionGroups.flat().map((a) => ({ group: "Action", label: a.label, run: a.run })),
+    ...TABS.map(([id, label]) => ({ group: "Tab", label, run: () => setTab(id) })),
+    ...(slices.length ? [{ group: "Stack", label: "Task: research & plan", run: () => pick("") }] : []),
+    ...slices.map((x) => ({ group: "Stack", label: `${x.key}: ${x.title}`, run: () => pick(x.id) })),
+  ];
+  useEffect(() => () => (commands.current = []), []);
 
   return html`
     <div style="display:grid;grid-template-columns:minmax(0,1fr) 300px;flex:1;min-height:0">

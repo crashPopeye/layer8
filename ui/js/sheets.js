@@ -125,6 +125,53 @@ export function NewTaskSheet({ state, projectId, onClose, onCreated, onSettings 
     </div>`;
 }
 
+/** Searches every menu and action the window offers right now; ↵ runs the highlighted one. */
+export function CommandSheet({ commands, onClose }) {
+  const [q, setQ] = useState("");
+  const [cursor, setCursor] = useState(0);
+  const list = useRef(null);
+  const search = useRef(null);
+  useEscape(onClose);
+  useFocus(search);
+
+  const shown = useMemo(() => {
+    const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+    return commands.filter((c) => {
+      const text = `${c.group} ${c.label}`.toLowerCase();
+      return words.every((w) => text.includes(w));
+    });
+  }, [commands, q]);
+
+  useEffect(() => {
+    const el = list.current && list.current.querySelector('[aria-selected="true"]');
+    if (el) el.scrollIntoView({ block: "nearest" });
+  }, [cursor]);
+
+  const pick = (c) => {
+    onClose();
+    c.run();
+  };
+
+  return html`
+    <div class="scrim" onClick=${onClose}></div>
+    <div class="sheet" onKeyDown=${(e) => {
+      if (e.key === "ArrowDown") setCursor((c) => Math.min(c + 1, shown.length - 1));
+      else if (e.key === "ArrowUp") setCursor((c) => Math.max(c - 1, 0));
+      else if (e.key === "Enter" && shown[cursor]) pick(shown[cursor]);
+      else return;
+      e.preventDefault();
+    }}>
+      <input ref=${search} class="field search" placeholder="Search menus and actions…" value=${q} onInput=${(e) => { setQ(e.target.value); setCursor(0); }} />
+      <div class="sheet-body" ref=${list}>
+        ${!shown.length && html`<div class="empty">Nothing matches.</div>`}
+        ${shown.map((c, n) => html`<div key=${c.group + c.label} class="issue cmd" aria-selected=${n === cursor} onMouseMove=${() => setCursor(n)} onClick=${() => pick(c)}>
+          <span class="ellipsis">${c.label}</span>
+          <span class="state">${c.group}</span>
+        </div>`)}
+      </div>
+    </div>`;
+}
+
 const TERMINALS = ["terminal", "iterm", "ghostty", "wezterm", "kitty", "custom"];
 const EDITORS = ["code", "cursor", "zed", "idea", "custom"];
 const SET = "__set__";

@@ -2,7 +2,7 @@ import { html, render, useState, useEffect, useRef, useCallback } from "/vendor/
 import { get, post, on, onOpen, startEvents, shell, connect, rememberToken } from "./api.js";
 import { home, cls } from "./util.js";
 import { TaskView } from "./task.js";
-import { NewTaskSheet, SettingsSheet } from "./sheets.js";
+import { NewTaskSheet, SettingsSheet, CommandSheet } from "./sheets.js";
 
 const empty = { projects: [], folders: [], tasks: [], slices: [], sessions: [], approvals: [], running: 0, queued: 0, maxRunning: 6, update: {} };
 
@@ -87,6 +87,17 @@ function App() {
     setSheet("new");
   };
   const [error, setError] = useState(null);
+  const taskCommands = useRef([]);
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (!(e.metaKey || e.ctrlKey) || e.code !== "Space") return;
+      e.preventDefault();
+      setSheet((s) => (s === "search" ? null : "search"));
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   const run = useCallback(async (p) => {
     try {
@@ -106,12 +117,22 @@ function App() {
 
   const task = state.tasks.find((t) => t.id === taskId) || null;
   const waiting = state.approvals.length;
+  const commands = () => [
+    { group: "Action", label: "New task", run: () => openNew() },
+    ...state.projects.filter((p) => state.folders.some((f) => f.projectId === p.id)).map((p) => ({ group: "Action", label: `New task in ${p.name}`, run: () => openNew(p.id) })),
+    ...taskCommands.current,
+    ...state.tasks.filter((t) => t.status === "active").map((t) => ({ group: "Task", label: `${t.linear ? t.linear.identifier + " " : ""}${t.title}`, run: () => setTaskId(t.id) })),
+    { group: "Menu", label: "Settings", run: () => setSheet("settings") },
+    ...(shell.available ? [{ group: "Action", label: "Check for updates", run: checkUpdate }] : []),
+  ];
 
   return html`
     <div class="frame">
       <header class="top" data-tauri-drag-region>
         <div class="wordmark" data-tauri-drag-region><img src="/logo.png" alt="" class="logo" data-tauri-drag-region /><span data-tauri-drag-region>layer<b>8</b></span></div>
-        <div class="grow" data-tauri-drag-region></div>
+        <div class="grow" data-tauri-drag-region>
+          <button class="searchbar" onClick=${() => setSheet("search")}><span>Search menus and actions</span><kbd>⌘ Space</kbd></button>
+        </div>
         <div title="Agents working / limit">
           <span class="label">Agents</span>
           <span class="meter">${Array.from({ length: state.maxRunning }, (_, i) => html`<i class=${i < state.running ? "on" : ""} />`)}</span>
@@ -148,7 +169,7 @@ function App() {
           ${upd.error && html`<span class="bad">${upd.error}</span>`}
         </div>`}
         ${task
-          ? html`<${TaskView} key=${task.id} state=${state} task=${task} run=${run} />`
+          ? html`<${TaskView} key=${task.id} state=${state} task=${task} run=${run} commands=${taskCommands} />`
           : html`<div class="empty">
               <div class="display">No task open</div>
               Start one from a Linear ticket with <b>New task</b>, or pick one on the left.
@@ -172,6 +193,7 @@ function App() {
         }}
       />`}
       ${sheet === "settings" && html`<${SettingsSheet} state=${state} run=${run} upd=${upd} onCheckUpdate=${checkUpdate} onClose=${() => setSheet(null)} />`}
+      ${sheet === "search" && html`<${CommandSheet} commands=${commands()} onClose=${() => setSheet(null)} />`}
       ${error && html`<div class="toast" onClick=${() => setError(null)}><div class="label bad">error</div>${error}</div>`}
     </div>
   `;
