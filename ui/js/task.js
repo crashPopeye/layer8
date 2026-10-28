@@ -75,7 +75,7 @@ export function TaskView({ state, task, run, keysEnabled }) {
             ${where.branch && html`<span><span class="faint">branch</span><span class="selectable">${where.branch}</span></span>`}
             ${isGit && html`<span><span class="faint">onto</span>${slice ? stackBase(slices, slice, task) : task.baseRef}</span>`}
             <span class="ellipsis"><span class="faint">tree</span><span class="selectable">${home(where.worktreePath)}</span></span>
-            ${syncNote && html`<span class=${where.syncState === "conflict" || where.syncState === "error" ? "bad" : "dim"}>${syncNote}</span>`}
+            ${syncNote && html`<span class=${["conflict", "error", "diverged"].includes(where.syncState) ? "bad" : "dim"}>${syncNote}</span>`}
           </div>
         </div>
 

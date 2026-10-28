@@ -79,13 +79,13 @@ func (a *App) PollGitHub(ctx context.Context) {
 				continue
 			}
 			wasMerged := x.PRState != "MERGED" && st.State == "MERGED"
-			x.PRURL, x.PRState, x.PRDraft, x.PRBase = st.URL, st.State, st.Draft, st.Base
-			x.CIState, x.ReviewState, x.Mergeable, x.OpenThreads = st.CIState, st.ReviewDecision, st.Mergeable, len(st.OpenThreads)
-			if err := a.Store.UpdateSlice(x); err == nil {
+			err = a.Store.SetSlicePR(x.ID, store.SlicePR{Number: x.PRNumber, URL: st.URL, State: st.State, Draft: st.Draft, Base: st.Base,
+				CIState: st.CIState, ReviewState: st.ReviewDecision, OpenThreads: len(st.OpenThreads), Mergeable: st.Mergeable})
+			if err == nil {
 				changed = true
 			}
-			if wasMerged {
-				// Children move onto the merged parent's base right away.
+			if wasMerged && a.Config.Get().SyncIntervalMinutes > 0 {
+				// Children move onto the merged parent's base right away (unless sync is off).
 				go a.SyncTask(a.ctx, t.ID)
 			}
 		}
@@ -129,10 +129,23 @@ func (a *App) prContext(ctx context.Context, sliceID string) (store.Slice, store
 	return x, t, repoRef{owner, name}, gh, err
 }
 
+// requireInSync refuses to start an agent on a branch that lacks commits GitHub has,
+// since its push would then have to discard them.
+func (a *App) requireInSync(ctx context.Context, x store.Slice) error {
+	_, _ = gitx.Run(ctx, x.WorktreePath, "fetch", "--quiet", "origin", x.Branch)
+	if gitx.RemoteDiverged(ctx, x.WorktreePath, x.Branch, x.LastPushedSHA) {
+		return gitx.ErrDiverged
+	}
+	return nil
+}
+
 // FixCI starts a session with the failing checks' logs.
 func (a *App) FixCI(ctx context.Context, sliceID string) (store.Session, error) {
 	x, t, r, gh, err := a.prContext(ctx, sliceID)
 	if err != nil {
+		return store.Session{}, err
+	}
+	if err := a.requireInSync(ctx, x); err != nil {
 		return store.Session{}, err
 	}
 	st, err := gh.PRStatus(ctx, r.owner, r.name, x.PRNumber)
@@ -171,6 +184,9 @@ func (a *App) FixCI(ctx context.Context, sliceID string) (store.Session, error) 
 func (a *App) AddressReview(ctx context.Context, sliceID string) (store.Session, error) {
 	x, t, r, gh, err := a.prContext(ctx, sliceID)
 	if err != nil {
+		return store.Session{}, err
+	}
+	if err := a.requireInSync(ctx, x); err != nil {
 		return store.Session{}, err
 	}
 	st, err := gh.PRStatus(ctx, r.owner, r.name, x.PRNumber)

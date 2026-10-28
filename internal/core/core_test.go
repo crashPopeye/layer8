@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/crashPopeye/layer8/internal/claude"
 	"github.com/crashPopeye/layer8/internal/config"
+	"github.com/crashPopeye/layer8/internal/gitx"
 	"github.com/crashPopeye/layer8/internal/sessions"
 	"github.com/crashPopeye/layer8/internal/store"
 )
@@ -388,4 +390,89 @@ func TestPlainFolderAndAPI(t *testing.T) {
 	if len(st.Tasks) != 1 || st.Version != "test" {
 		t.Fatalf("state %+v", st)
 	}
+}
+
+func TestSyncNeverDiscardsRemoteOnlyCommits(t *testing.T) {
+	h := newApp(t)
+	a := h.app
+	ctx := context.Background()
+	work, teammate := repo(t)
+	ws, _ := a.AddWorkspace(ctx, work)
+	task, _ := a.CreateTask(ctx, NewTask{WorkspaceID: ws.ID, Title: "Remote safety"})
+	x, err := a.CreateSingleSlice(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d, err := a.Diff(ctx, task.ID, x.ID, ""); err != nil || d.Commits == nil {
+		t.Fatalf("fresh branch must report an empty, non-nil commit list: %+v %v", d, err)
+	}
+	b, _ := json.Marshal(&DiffResult{Commits: mustLog(t, a, task, x)})
+	if !strings.Contains(string(b), `"commits":[]`) {
+		t.Fatalf("commits JSON: %s", b)
+	}
+
+	// The branch is pushed by layer8, then a reviewer commits a suggestion on GitHub.
+	commitFile(t, x.WorktreePath, "a.txt", "a\n", "work")
+	if err := a.push(ctx, x, ""); err != nil {
+		t.Fatal(err)
+	}
+	git(t, teammate, "fetch", "-q", "origin")
+	git(t, teammate, "checkout", "-q", "-b", "suggest", "origin/"+x.Branch)
+	suggestion := commitFile(t, teammate, "a.txt", "a (suggested)\n", "Apply suggestion")
+	git(t, teammate, "push", "-q", "origin", "HEAD:"+x.Branch)
+	// Main moves, so sync wants to rebase and force-push.
+	git(t, teammate, "checkout", "-q", "-B", "m", "origin/main")
+	commitFile(t, teammate, "other.txt", "o\n", "main moves")
+	git(t, teammate, "push", "-q", "origin", "HEAD:main")
+
+	a.SyncAll(ctx)
+	got, _ := a.Store.Slice(x.ID)
+	if got.SyncState != "diverged" {
+		t.Fatalf("state = %q (%s)", got.SyncState, got.SyncMessage)
+	}
+	if remote := git(t, work, "ls-remote", "origin", "refs/heads/"+x.Branch); !strings.HasPrefix(remote, suggestion) {
+		t.Fatalf("the reviewer's commit was overwritten: %s", remote)
+	}
+	if err := a.PushSlice(ctx, x.ID); !errors.Is(err, gitx.ErrDiverged) {
+		t.Fatalf("manual push should refuse: %v", err)
+	}
+
+	// After pulling the suggestion, sync rebases and force-pushes normally.
+	git(t, x.WorktreePath, "pull", "-q", "--rebase", "origin", x.Branch)
+	a.SyncAll(ctx)
+	got, _ = a.Store.Slice(x.ID)
+	if got.SyncState != "ok" || got.LastPushedSHA != git(t, x.WorktreePath, "rev-parse", "HEAD") {
+		t.Fatalf("after pull: %q %s", got.SyncState, got.SyncMessage)
+	}
+	if git(t, work, "ls-remote", "origin", "refs/heads/"+x.Branch)[:40] != got.LastPushedSHA {
+		t.Fatal("rebased branch was not pushed")
+	}
+}
+
+func TestSyncPushesBranchTheUserPushedByHand(t *testing.T) {
+	h := newApp(t)
+	a := h.app
+	ctx := context.Background()
+	work, teammate := repo(t)
+	ws, _ := a.AddWorkspace(ctx, work)
+	task, _ := a.CreateTask(ctx, NewTask{WorkspaceID: ws.ID, Title: "Hand pushed"})
+	x, _ := a.CreateSingleSlice(ctx, task.ID)
+	commitFile(t, x.WorktreePath, "a.txt", "a\n", "work")
+	git(t, x.WorktreePath, "push", "-q", "-u", "origin", x.Branch) // outside layer8: no LastPushedSHA
+	commitFile(t, teammate, "other.txt", "o\n", "main moves")
+	git(t, teammate, "push", "-q", "origin", "HEAD:main")
+	a.SyncAll(ctx)
+	got, _ := a.Store.Slice(x.ID)
+	if got.SyncState != "ok" || got.LastPushedSHA == "" {
+		t.Fatalf("state %q (%s), pushed %q", got.SyncState, got.SyncMessage, got.LastPushedSHA)
+	}
+}
+
+func mustLog(t *testing.T, a *App, task store.Task, x store.Slice) []gitx.Commit {
+	t.Helper()
+	c, err := gitx.Log(context.Background(), x.WorktreePath, task.BaseRef, "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c
 }

@@ -69,7 +69,7 @@ func (a *App) Diff(ctx context.Context, taskID, sliceID, sha string) (*DiffResul
 		return nil, fmt.Errorf("compare with %s: %w", ref, err)
 	}
 	res := &DiffResult{Base: ref}
-	res.Commits, err = gitx.Log(ctx, dir, mb, "HEAD")
+	res.Commits, err = gitx.Log(ctx, dir, mb, "HEAD") // never nil: the UI maps over it
 	if err != nil {
 		return nil, err
 	}

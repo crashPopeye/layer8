@@ -180,7 +180,14 @@ func RebaseOnto(ctx context.Context, dir, newBase, oldBase string) error {
 		return nil
 	}
 	if rebaseInProgress(dir) {
-		_, _ = Run(ctx, dir, "rebase", "--abort")
+		// The rebase may have died because ctx was cancelled; abort on a fresh context
+		// so the worktree is never left mid-rebase.
+		actx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer cancel()
+		_, _ = Run(actx, dir, "rebase", "--abort")
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		return fmt.Errorf("%w: %v", ErrConflict, err)
 	}
 	return err
@@ -201,15 +208,47 @@ func rebaseInProgress(dir string) bool {
 	return false
 }
 
-// Push pushes the current branch; force uses --force-with-lease so someone else's
-// push is never overwritten.
-func Push(ctx context.Context, dir, branch string, force bool) error {
-	args := []string{"push", "--set-upstream", "origin", branch}
-	if force {
-		args = []string{"push", "--force-with-lease", "--set-upstream", "origin", branch}
+// ErrDiverged means origin has commits for the branch that the local branch lacks.
+var ErrDiverged = errors.New("GitHub has commits on this branch that your local branch doesn't (for example a suggestion committed on the PR); pull them first: git pull --rebase")
+
+// RemoteDiverged reports whether origin/<branch> holds work that is not in HEAD and
+// was not pushed by us (lastPushed). Call after a fetch.
+func RemoteDiverged(ctx context.Context, dir, branch, lastPushed string) bool {
+	remote, err := RevParse(ctx, dir, "refs/remotes/origin/"+branch)
+	if err != nil {
+		return false // never pushed
 	}
-	_, err := Run(ctx, dir, args...)
-	return err
+	return remote != lastPushed && !IsAncestor(ctx, dir, remote, "HEAD")
+}
+
+// SafePush pushes HEAD to origin/<branch>. A rebased branch is force-pushed, but only
+// when origin's copy is what we pushed last or is already contained in HEAD, and the
+// lease pins that exact commit, so nobody else's work is ever overwritten.
+// preRebase, when set, is HEAD from before a rebase layer8 just did: origin's copy
+// being contained in it is also safe. It returns the pushed SHA.
+func SafePush(ctx context.Context, dir, branch, lastPushed, preRebase string) (string, error) {
+	_, _ = Run(ctx, dir, "fetch", "--quiet", "origin", branch) // fine to fail: branch may not exist yet
+	head, err := RevParse(ctx, dir, "HEAD")
+	if err != nil {
+		return "", err
+	}
+	args := []string{"push", "--set-upstream", "origin", "HEAD:refs/heads/" + branch}
+	if remote, err := RevParse(ctx, dir, "refs/remotes/origin/"+branch); err == nil {
+		if remote == head {
+			_, err := Run(ctx, dir, "branch", "--set-upstream-to=origin/"+branch)
+			return head, err
+		}
+		contained := remote == lastPushed || IsAncestor(ctx, dir, remote, "HEAD") ||
+			(preRebase != "" && IsAncestor(ctx, dir, remote, preRebase))
+		if !contained {
+			return "", ErrDiverged
+		}
+		args = []string{"push", "--force-with-lease=" + branch + ":" + remote, "--set-upstream", "origin", "HEAD:refs/heads/" + branch}
+	}
+	if _, err := Run(ctx, dir, args...); err != nil {
+		return "", err
+	}
+	return head, nil
 }
 
 // OriginRepo returns owner and name when origin points at GitHub.
@@ -268,7 +307,7 @@ func Log(ctx context.Context, dir, base, head string) ([]Commit, error) {
 	if err != nil {
 		return nil, err
 	}
-	var commits []Commit
+	commits := []Commit{}
 	for _, rec := range strings.Split(out, end) {
 		rec = strings.TrimLeft(rec, "\n")
 		if rec == "" {

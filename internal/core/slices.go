@@ -2,11 +2,13 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/crashPopeye/layer8/internal/gitx"
 	"github.com/crashPopeye/layer8/internal/linear"
@@ -91,21 +93,30 @@ func (a *App) CreateSlices(ctx context.Context, taskID string) ([]store.Slice, e
 	}
 
 	cfg := a.Config.Get()
-	// Linear first, so a Linear failure creates nothing on disk.
-	subIssues := map[string]*linear.IssueSummary{}
+	// Linear first, so a Linear failure creates nothing on disk. Created sub-issues are
+	// recorded right away, so a retry after a later failure reuses them.
+	subIssues := loadSubIssues(t.ArtifactsPath)
 	if cfg.CreateLinearSubIssues && t.Linear != nil && cfg.LinearAPIKey != "" {
 		lc := linear.New(cfg.LinearAPIKey)
-		parent, err := lc.Issue(ctx, t.Linear.ID)
-		if err != nil {
-			return nil, fmt.Errorf("Linear sub-issues: %w", err)
-		}
+		var parent *linear.Issue
 		for _, p := range todo {
+			if subIssues[p.ID] != nil {
+				continue
+			}
+			if parent == nil {
+				if parent, err = lc.Issue(ctx, t.Linear.ID); err != nil {
+					return nil, fmt.Errorf("Linear sub-issues: %w", err)
+				}
+			}
 			desc := fmt.Sprintf("Part of %s. Pull request `%s` of the plan, created by layer8.", t.Linear.Identifier, p.ID)
 			sub, err := lc.CreateSubIssue(ctx, parent, p.Title, desc)
 			if err != nil {
 				return nil, fmt.Errorf("create Linear sub-issue for %s: %w", p.ID, err)
 			}
 			subIssues[p.ID] = sub
+			if err := saveSubIssues(t.ArtifactsPath, subIssues); err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -145,6 +156,24 @@ func (a *App) CreateSlices(ctx context.Context, taskID string) ([]store.Slice, e
 	}
 	a.bus.Changed()
 	return a.Store.TaskSlices(taskID)
+}
+
+const subIssuesFile = ".linear-sub-issues.json"
+
+func loadSubIssues(dir string) map[string]*linear.IssueSummary {
+	m := map[string]*linear.IssueSummary{}
+	if b, err := os.ReadFile(filepath.Join(dir, subIssuesFile)); err == nil {
+		_ = json.Unmarshal(b, &m)
+	}
+	return m
+}
+
+func saveSubIssues(dir string, m map[string]*linear.IssueSummary) error {
+	b, err := json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, subIssuesFile), b, 0o644)
 }
 
 // CreateSingleSlice tracks the task's own branch as one PR, for work that doesn't need splitting.
@@ -279,13 +308,17 @@ func (a *App) onTurnEnd(s store.Session, ok bool) {
 	case "fix_ci", "review", "conflict":
 		if s.Kind == "conflict" {
 			if tip, err := gitx.RevParse(ctx, x.WorktreePath, a.parentRef(t, x)); err == nil && gitx.IsAncestor(ctx, x.WorktreePath, tip, "HEAD") {
-				x.BaseSHA, x.SyncState, x.SyncMessage = tip, "ok", ""
-				_ = a.Store.UpdateSlice(x)
+				_ = a.Store.SetSliceBase(x.ID, tip)
+				_ = a.Store.SetSliceSync(x.ID, "ok", "")
 			}
 		}
 		if x.PRNumber > 0 {
-			if err := a.push(ctx, x); err != nil {
-				a.setSliceSync(x.ID, "error", "push after "+s.Kind+": "+err.Error())
+			if err := a.push(ctx, x, ""); err != nil {
+				state := "error"
+				if errors.Is(err, gitx.ErrDiverged) {
+					state = "diverged"
+				}
+				a.setSliceSync(x.ID, state, "push after "+s.Kind+": "+err.Error())
 			}
 		}
 	case "slice":
@@ -299,6 +332,11 @@ func (a *App) onTurnEnd(s store.Session, ok bool) {
 // startReadySlices starts each slice that has no session yet and whose dependencies
 // all have commits and are idle.
 func (a *App) startReadySlices(ctx context.Context, t store.Task) {
+	// Two parents can finish at once; without this both would start the same child.
+	m, _ := a.taskLocks.LoadOrStore(t.ID, &sync.Mutex{})
+	mu := m.(*sync.Mutex)
+	mu.Lock()
+	defer mu.Unlock()
 	slices, _ := a.Store.TaskSlices(t.ID)
 	byKey := map[string]store.Slice{}
 	for _, x := range slices {
@@ -339,20 +377,24 @@ func (a *App) hasCommits(ctx context.Context, t store.Task, x store.Slice) bool 
 }
 
 func (a *App) setSliceSync(id, state, msg string) {
-	x, err := a.Store.Slice(id)
-	if err != nil {
-		return
-	}
-	x.SyncState, x.SyncMessage = state, msg
-	_ = a.Store.UpdateSlice(x)
+	_ = a.Store.SetSliceSync(id, state, msg)
 	a.bus.Changed()
 }
 
-// push sends the slice branch to origin; branches we rebase are force-pushed with lease.
-func (a *App) push(ctx context.Context, x store.Slice) error {
+// push sends the slice branch to origin. Rebased branches are force-pushed only when
+// that can't lose anyone's commits (see gitx.SafePush).
+func (a *App) push(ctx context.Context, x store.Slice, preRebase string) error {
 	unlock := a.lock(x.WorktreePath)
 	defer unlock()
-	return gitx.Push(ctx, x.WorktreePath, x.Branch, gitx.HasUpstream(ctx, x.WorktreePath))
+	fresh, err := a.Store.Slice(x.ID)
+	if err != nil {
+		return err
+	}
+	sha, err := gitx.SafePush(ctx, x.WorktreePath, x.Branch, fresh.LastPushedSHA, preRebase)
+	if err != nil {
+		return err
+	}
+	return a.Store.SetSliceLastPushed(x.ID, sha)
 }
 
 // PushSlice pushes without touching the PR.
@@ -364,7 +406,7 @@ func (a *App) PushSlice(ctx context.Context, sliceID string) error {
 	if a.worktreeBusy(x.WorktreePath) {
 		return errors.New("a session is working in this slice; wait for it to finish")
 	}
-	return a.push(ctx, x)
+	return a.push(ctx, x, "")
 }
 
 // OpenPR pushes the slice and opens (or finds) its pull request against its parent.
@@ -398,7 +440,7 @@ func (a *App) OpenPR(ctx context.Context, sliceID string) (store.Slice, error) {
 	if err != nil {
 		return x, err
 	}
-	if err := a.push(ctx, x); err != nil {
+	if err := a.push(ctx, x, ""); err != nil {
 		return x, err
 	}
 	pr, err := gh.FindPR(ctx, owner, repo, x.Branch)
@@ -417,14 +459,21 @@ func (a *App) OpenPR(ctx context.Context, sliceID string) (store.Slice, error) {
 			return x, err
 		}
 	}
-	x.PRNumber, x.PRURL, x.PRDraft, x.PRState = pr.Number, pr.URL, pr.Draft, "OPEN"
-	x.PRBase = pr.Base.Ref
-	if err := a.Store.UpdateSlice(x); err != nil {
+	cur, err := a.Store.Slice(x.ID)
+	if err != nil {
+		return x, err
+	}
+	state := strings.ToUpper(pr.State)
+	if state == "" {
+		state = "OPEN"
+	}
+	if err := a.Store.SetSlicePR(x.ID, store.SlicePR{Number: pr.Number, URL: pr.URL, State: state, Draft: pr.Draft, Base: pr.Base.Ref,
+		CIState: cur.CIState, ReviewState: cur.ReviewState, OpenThreads: cur.OpenThreads, Mergeable: cur.Mergeable}); err != nil {
 		return x, err
 	}
 	a.bus.Changed()
 	go a.PollGitHub(a.ctx)
-	return x, nil
+	return a.Store.Slice(x.ID)
 }
 
 func (a *App) prBody(t store.Task, x store.Slice) string {

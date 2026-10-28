@@ -49,31 +49,32 @@ type Task struct {
 
 // Slice is one pull request of a task's plan, on its own stacked branch and worktree.
 type Slice struct {
-	ID           string     `json:"id"`
-	TaskID       string     `json:"taskId"`
-	Key          string     `json:"key"` // id from the plan, e.g. pr2
-	Title        string     `json:"title"`
-	Position     int        `json:"position"`
-	DependsOn    []string   `json:"dependsOn"`
-	ParentKey    string     `json:"parentKey"` // "" = stacked on the task's base
-	Branch       string     `json:"branch"`
-	WorktreePath string     `json:"worktreePath"`
-	BaseSHA      string     `json:"baseSha"`
-	TmuxSession  string     `json:"tmuxSession"`
-	Linear       *LinearRef `json:"linear"`
-	PRNumber     int        `json:"prNumber"`
-	PRURL        string     `json:"prUrl"`
-	PRState      string     `json:"prState"` // OPEN, MERGED, CLOSED, ""
-	PRDraft      bool       `json:"prDraft"`
-	PRBase       string     `json:"prBase"`
-	CIState      string     `json:"ciState"` // SUCCESS, FAILURE, PENDING, ""
-	ReviewState  string     `json:"reviewState"`
-	OpenThreads  int        `json:"openThreads"`
-	Mergeable    string     `json:"mergeable"`
-	SyncState    string     `json:"syncState"` // ok, behind, conflict, dirty, busy, error
-	SyncMessage  string     `json:"syncMessage"`
-	CreatedAt    string     `json:"createdAt"`
-	UpdatedAt    string     `json:"updatedAt"`
+	ID            string     `json:"id"`
+	TaskID        string     `json:"taskId"`
+	Key           string     `json:"key"` // id from the plan, e.g. pr2
+	Title         string     `json:"title"`
+	Position      int        `json:"position"`
+	DependsOn     []string   `json:"dependsOn"`
+	ParentKey     string     `json:"parentKey"` // "" = stacked on the task's base
+	Branch        string     `json:"branch"`
+	WorktreePath  string     `json:"worktreePath"`
+	BaseSHA       string     `json:"baseSha"`
+	LastPushedSHA string     `json:"lastPushedSha"`
+	TmuxSession   string     `json:"tmuxSession"`
+	Linear        *LinearRef `json:"linear"`
+	PRNumber      int        `json:"prNumber"`
+	PRURL         string     `json:"prUrl"`
+	PRState       string     `json:"prState"` // OPEN, MERGED, CLOSED, ""
+	PRDraft       bool       `json:"prDraft"`
+	PRBase        string     `json:"prBase"`
+	CIState       string     `json:"ciState"` // SUCCESS, FAILURE, PENDING, ""
+	ReviewState   string     `json:"reviewState"`
+	OpenThreads   int        `json:"openThreads"`
+	Mergeable     string     `json:"mergeable"`
+	SyncState     string     `json:"syncState"` // ok, behind, conflict, dirty, busy, error
+	SyncMessage   string     `json:"syncMessage"`
+	CreatedAt     string     `json:"createdAt"`
+	UpdatedAt     string     `json:"updatedAt"`
 }
 
 type Session struct {
@@ -176,7 +177,36 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
-	return &Store{db: db}, nil
+	s := &Store{db: db}
+	if err := s.ensureColumn("slices", "last_pushed_sha", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		db.Close()
+		return nil, err
+	}
+	return s, nil
+}
+
+// ensureColumn adds a column to databases created by older versions.
+func (s *Store) ensureColumn(table, col, def string) error {
+	rows, err := s.db.Query(`SELECT name FROM pragma_table_info(?)`, table)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return err
+		}
+		if name == col {
+			return nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	rows.Close()
+	_, err = s.db.Exec(fmt.Sprintf(`ALTER TABLE %s ADD COLUMN %s %s`, table, col, def))
+	return err
 }
 
 func (s *Store) Close() error { return s.db.Close() }
@@ -330,14 +360,14 @@ func (s *Store) SetTaskSync(id, state, msg, baseSHA string) error {
 
 // ---- slices
 
-const sliceCols = `id,task_id,key,title,position,depends_on,parent_key,branch,worktree_path,base_sha,tmux_session,linear,
+const sliceCols = `id,task_id,key,title,position,depends_on,parent_key,branch,worktree_path,base_sha,last_pushed_sha,tmux_session,linear,
 pr_number,pr_url,pr_state,pr_draft,pr_base,ci_state,review_state,open_threads,mergeable,sync_state,sync_message,created_at,updated_at`
 
 func scanSlice(r scanner) (Slice, error) {
 	var x Slice
 	var deps, lin string
 	err := r.Scan(&x.ID, &x.TaskID, &x.Key, &x.Title, &x.Position, &deps, &x.ParentKey, &x.Branch, &x.WorktreePath, &x.BaseSHA,
-		&x.TmuxSession, &lin, &x.PRNumber, &x.PRURL, &x.PRState, &x.PRDraft, &x.PRBase, &x.CIState, &x.ReviewState,
+		&x.LastPushedSHA, &x.TmuxSession, &lin, &x.PRNumber, &x.PRURL, &x.PRState, &x.PRDraft, &x.PRBase, &x.CIState, &x.ReviewState,
 		&x.OpenThreads, &x.Mergeable, &x.SyncState, &x.SyncMessage, &x.CreatedAt, &x.UpdatedAt)
 	_ = json.Unmarshal([]byte(deps), &x.DependsOn)
 	if x.DependsOn == nil {
@@ -353,9 +383,9 @@ func (s *Store) InsertSlice(x Slice) (Slice, error) {
 	if x.DependsOn == nil {
 		x.DependsOn = []string{}
 	}
-	_, err := s.db.Exec(`INSERT INTO slices (`+sliceCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+	_, err := s.db.Exec(`INSERT INTO slices (`+sliceCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		x.ID, x.TaskID, x.Key, x.Title, x.Position, jsonOrEmpty(x.DependsOn), x.ParentKey, x.Branch, x.WorktreePath, x.BaseSHA,
-		x.TmuxSession, jsonOrEmpty(x.Linear), x.PRNumber, x.PRURL, x.PRState, x.PRDraft, x.PRBase, x.CIState, x.ReviewState,
+		x.LastPushedSHA, x.TmuxSession, jsonOrEmpty(x.Linear), x.PRNumber, x.PRURL, x.PRState, x.PRDraft, x.PRBase, x.CIState, x.ReviewState,
 		x.OpenThreads, x.Mergeable, x.SyncState, x.SyncMessage, x.CreatedAt, x.UpdatedAt)
 	return x, err
 }
@@ -391,12 +421,57 @@ func (s *Store) Slice(id string) (Slice, error) {
 	return x, err
 }
 
-// UpdateSlice writes every mutable field.
+// Narrow updates: background loops (sync, GitHub polling, sessions) each own a
+// different set of columns, so none of them can overwrite another's fresh data
+// with a stale copy.
+
+// SlicePR is what GitHub polling and PR creation write.
+type SlicePR struct {
+	Number      int
+	URL         string
+	State       string
+	Draft       bool
+	Base        string
+	CIState     string
+	ReviewState string
+	OpenThreads int
+	Mergeable   string
+}
+
+func (s *Store) SetSlicePR(id string, p SlicePR) error {
+	_, err := s.db.Exec(`UPDATE slices SET pr_number=?, pr_url=?, pr_state=?, pr_draft=?, pr_base=?, ci_state=?, review_state=?,
+	  open_threads=?, mergeable=?, updated_at=? WHERE id=?`,
+		p.Number, p.URL, p.State, p.Draft, p.Base, p.CIState, p.ReviewState, p.OpenThreads, p.Mergeable, Now(), id)
+	return err
+}
+
+func (s *Store) SetSlicePRBase(id, base string) error {
+	_, err := s.db.Exec(`UPDATE slices SET pr_base=?, updated_at=? WHERE id=?`, base, Now(), id)
+	return err
+}
+
+func (s *Store) SetSliceSync(id, state, msg string) error {
+	_, err := s.db.Exec(`UPDATE slices SET sync_state=?, sync_message=?, updated_at=? WHERE id=?`, state, msg, Now(), id)
+	return err
+}
+
+func (s *Store) SetSliceBase(id, baseSHA string) error {
+	_, err := s.db.Exec(`UPDATE slices SET base_sha=?, updated_at=? WHERE id=?`, baseSHA, Now(), id)
+	return err
+}
+
+func (s *Store) SetSliceLastPushed(id, sha string) error {
+	_, err := s.db.Exec(`UPDATE slices SET last_pushed_sha=?, updated_at=? WHERE id=?`, sha, Now(), id)
+	return err
+}
+
+// UpdateSlice writes every mutable field. Only for tests and one-off edits;
+// running code uses the narrow setters above.
 func (s *Store) UpdateSlice(x Slice) error {
-	_, err := s.db.Exec(`UPDATE slices SET title=?, parent_key=?, base_sha=?, tmux_session=?, linear=?, pr_number=?, pr_url=?,
+	_, err := s.db.Exec(`UPDATE slices SET title=?, parent_key=?, base_sha=?, last_pushed_sha=?, tmux_session=?, linear=?, pr_number=?, pr_url=?,
 	  pr_state=?, pr_draft=?, pr_base=?, ci_state=?, review_state=?, open_threads=?, mergeable=?, sync_state=?, sync_message=?,
 	  updated_at=? WHERE id=?`,
-		x.Title, x.ParentKey, x.BaseSHA, x.TmuxSession, jsonOrEmpty(x.Linear), x.PRNumber, x.PRURL, x.PRState, x.PRDraft, x.PRBase,
+		x.Title, x.ParentKey, x.BaseSHA, x.LastPushedSHA, x.TmuxSession, jsonOrEmpty(x.Linear), x.PRNumber, x.PRURL, x.PRState, x.PRDraft, x.PRBase,
 		x.CIState, x.ReviewState, x.OpenThreads, x.Mergeable, x.SyncState, x.SyncMessage, Now(), x.ID)
 	return err
 }

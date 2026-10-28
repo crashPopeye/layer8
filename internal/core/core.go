@@ -6,6 +6,7 @@ import (
 	"context"
 	"log"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/crashPopeye/layer8/internal/config"
@@ -33,9 +34,10 @@ type App struct {
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 
-	pollMu   sync.Mutex
-	syncMu   sync.Mutex
-	lastSync time.Time
+	pollMu    sync.Mutex
+	syncMu    sync.Mutex
+	lastSync  atomic.Int64 // unix nanos of the last SyncAll start
+	taskLocks sync.Map     // task id -> *sync.Mutex, serialises auto-starting slices
 }
 
 type Options struct {
@@ -78,7 +80,7 @@ func (a *App) Run() {
 	a.loop("github", 90*time.Second, 5*time.Second, func() { a.PollGitHub(a.ctx) })
 	a.loop("sync", time.Minute, 20*time.Second, func() {
 		mins := a.Config.Get().SyncIntervalMinutes
-		if mins > 0 && time.Since(a.lastSync) >= time.Duration(mins)*time.Minute {
+		if mins > 0 && time.Since(time.Unix(0, a.lastSync.Load())) >= time.Duration(mins)*time.Minute {
 			a.SyncAll(a.ctx)
 		}
 	})

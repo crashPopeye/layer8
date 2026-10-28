@@ -127,7 +127,7 @@ kbd { font: inherit; font-size: 10.5px; color: var(--ink-3); }
 .sq.queued { background: transparent; box-shadow: inset 0 0 0 1px var(--ink-2); }
 .sq.waiting_approval { background: var(--wait); animation: blink 0.6s steps(2, jump-none) infinite; }
 .sq.idle, .sq.ok, .sq.SUCCESS, .sq.MERGED { background: var(--ok); }
-.sq.failed, .sq.FAILURE, .sq.ERROR, .sq.conflict, .sq.error { background: var(--bad); }
+.sq.failed, .sq.FAILURE, .sq.ERROR, .sq.conflict, .sq.error, .sq.diverged { background: var(--bad); }
 .sq.interrupted, .sq.CLOSED { background: var(--ink-3); }
 .sq.PENDING, .sq.EXPECTED, .sq.dirty, .sq.busy { background: var(--wait); }
 .sq.none { background: transparent; box-shadow: inset 0 0 0 1px var(--rule-hi); }

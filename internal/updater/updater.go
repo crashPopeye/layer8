@@ -225,7 +225,12 @@ func (u *Updater) install(ctx context.Context, rel *github.Release) error {
 	if err != nil {
 		return fmt.Errorf("can't write next to %s: %w", bundle, err)
 	}
-	defer os.RemoveAll(stage)
+	keepStage := false // set when the stage holds the only copy of the app
+	defer func() {
+		if !keepStage {
+			os.RemoveAll(stage)
+		}
+	}()
 
 	u.set(func(s *Status) { s.State, s.Error = "downloading", "" })
 	dctx, cancel := context.WithTimeout(ctx, 15*time.Minute)
@@ -278,6 +283,7 @@ func (u *Updater) install(ctx context.Context, rel *github.Release) error {
 	}
 	if err := os.Rename(newBundle, bundle); err != nil {
 		if rerr := os.Rename(old, bundle); rerr != nil {
+			keepStage = true
 			return fmt.Errorf("install failed (%v) and restoring the previous app failed too (%v); the previous app is at %s", err, rerr, old)
 		}
 		return fmt.Errorf("install: %w", err)

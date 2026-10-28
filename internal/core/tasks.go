@@ -71,7 +71,26 @@ func (a *App) AddWorkspace(ctx context.Context, path string) (store.Workspace, e
 }
 
 func (a *App) RemoveWorkspace(id string) error {
-	err := a.Store.DeleteWorkspace(id)
+	tasks, err := a.Store.Tasks()
+	if err != nil {
+		return err
+	}
+	var sessions []store.Session
+	for _, t := range tasks {
+		if t.WorkspaceID == id {
+			sessions = append(sessions, a.taskSessions(t.ID)...)
+		}
+	}
+	for _, s := range sessions {
+		if a.Sessions.Busy(s.ID) {
+			return errors.New("agents are working in this workspace; stop them first")
+		}
+	}
+	// Their rows are about to be deleted; close idle processes so none is orphaned.
+	for _, s := range sessions {
+		_ = a.Sessions.Release(s.ID)
+	}
+	err = a.Store.DeleteWorkspace(id)
 	a.bus.Changed()
 	return err
 }
@@ -324,7 +343,9 @@ func (a *App) ResumeInTerminal(ctx context.Context, sessionID string) error {
 	if s.ClaudeSessionID == "" {
 		return errors.New("this session has not started yet")
 	}
-	if a.Sessions.Busy(sessionID) {
+	// Close layer8's own process for this conversation so only the terminal writes to it;
+	// the next message from layer8 resumes it again.
+	if err := a.Sessions.Release(sessionID); err != nil {
 		return errors.New("stop the session in layer8 first, so two agents don't write to the same conversation")
 	}
 	path, name, slug, err := a.worktreeOf(s.TaskID, s.SliceID)

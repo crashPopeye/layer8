@@ -234,3 +234,31 @@ func TestAutonomousTurnCountsAsRunning(t *testing.T) {
 	proc.result(true)
 	h.until(func() bool { return h.status(s.ID) == "idle" })
 }
+
+func TestReleaseClosesProcessAndNextMessageResumes(t *testing.T) {
+	h := newHarness(t, 2, func(p *fakeProc, n int, text string) {
+		p.msg(claude.Message{Type: "system", Subtype: "init", SessionID: "c-1"})
+		p.result(true)
+	})
+	s, _ := h.m.Create(store.Session{TaskID: h.task.ID, Kind: "chat", Title: "c", Cwd: "/w"}, "go")
+	h.until(func() bool { return h.status(s.ID) == "idle" })
+	if err := h.m.Release(s.ID); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-h.procs[0].done:
+	default:
+		t.Fatal("process still running after Release")
+	}
+	if err := h.m.Send(s.ID, "again"); err != nil {
+		t.Fatal(err)
+	}
+	h.until(func() bool { h.mu.Lock(); defer h.mu.Unlock(); return len(h.procs) == 2 })
+	if h.procs[1].opts.Resume != "c-1" {
+		t.Fatalf("resume = %q", h.procs[1].opts.Resume)
+	}
+	h.until(func() bool { return h.status(s.ID) == "idle" })
+	if got, _ := h.st.Session(s.ID); got.Status != "idle" {
+		t.Fatalf("status %s", got.Status)
+	}
+}

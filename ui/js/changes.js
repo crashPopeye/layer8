@@ -59,12 +59,12 @@ export function ChangesPane({ task, slice, state, run }) {
       <button class="list-row" aria-selected=${sha === ""} onClick=${() => setSha("")}>
         <span class="grow">All changes${!sha && data.untracked && data.untracked.length ? ` (+${data.untracked.length} new)` : ""}</span>
       </button>
-      ${data.commits.map((c) => html`<button key=${c.sha} class="list-row" aria-selected=${sha === c.sha} onClick=${() => setSha(c.sha)} title=${c.subject + "\n" + c.author}>
+      ${(data.commits || []).map((c) => html`<button key=${c.sha} class="list-row" aria-selected=${sha === c.sha} onClick=${() => setSha(c.sha)} title=${c.subject + "\n" + c.author}>
         <span class="faint">${c.short}</span><span class="grow">${c.subject}</span><span class="faint">${day(c.date)}</span>
       </button>`)}
-      ${!data.commits.length && html`<div class="empty" style="padding:10px 12px">No commits yet.</div>`}
+      ${!(data.commits || []).length && html`<div class="empty" style="padding:10px 12px">No commits yet.</div>`}
       <div class="list-head label" style="margin-top:10px">Files</div>
-      ${data.files.map((f) => html`<a key=${f.newPath + f.oldPath} class="list-row" href=${"#f-" + encodeURIComponent(f.newPath || f.oldPath)}
+      ${(data.files || []).map((f) => html`<a key=${f.newPath + f.oldPath} class="list-row" href=${"#f-" + encodeURIComponent(f.newPath || f.oldPath)}
           onClick=${(e) => { e.preventDefault(); document.getElementById("f-" + (f.newPath || f.oldPath))?.scrollIntoView(); }}>
         <span class="grow">${f.status === "deleted" ? f.oldPath : f.newPath}</span>
         <span class="okc">+${f.adds}</span><span class="bad">-${f.dels}</span>

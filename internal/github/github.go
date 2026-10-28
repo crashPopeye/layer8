@@ -31,12 +31,20 @@ func Token(configured string) (string, error) {
 
 type Client struct {
 	token string
-	HTTP  *http.Client
-	API   string // tests override
+	HTTP  *http.Client // API calls: short overall timeout
+	// Downloads (release assets, job logs) can take minutes on slow links; they are
+	// bounded by the caller's context instead of a client timeout.
+	Download *http.Client
+	API      string // tests override
 }
 
 func New(token string) *Client {
-	return &Client{token: token, HTTP: &http.Client{Timeout: 60 * time.Second}, API: "https://api.github.com"}
+	return &Client{
+		token:    token,
+		HTTP:     &http.Client{Timeout: 60 * time.Second},
+		Download: &http.Client{Transport: &http.Transport{Proxy: http.ProxyFromEnvironment, ResponseHeaderTimeout: 60 * time.Second}},
+		API:      "https://api.github.com",
+	}
 }
 
 type APIError struct {
@@ -47,6 +55,10 @@ type APIError struct {
 func (e *APIError) Error() string { return fmt.Sprintf("github: HTTP %d: %s", e.Status, e.Message) }
 
 func (c *Client) do(ctx context.Context, method, path string, body any, accept string) (*http.Response, error) {
+	return c.doWith(c.HTTP, ctx, method, path, body, accept)
+}
+
+func (c *Client) doWith(hc *http.Client, ctx context.Context, method, path string, body any, accept string) (*http.Response, error) {
 	var r io.Reader
 	if body != nil {
 		b, err := json.Marshal(body)
@@ -68,7 +80,7 @@ func (c *Client) do(ctx context.Context, method, path string, body any, accept s
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	res, err := c.HTTP.Do(req)
+	res, err := hc.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("github: %w", err)
 	}
@@ -326,7 +338,7 @@ func (c *Client) PRStatus(ctx context.Context, owner, repo string, number int) (
 
 // JobLogTail returns the last maxLines lines of a GitHub Actions job log.
 func (c *Client) JobLogTail(ctx context.Context, owner, repo string, jobID int64, maxLines int) (string, error) {
-	res, err := c.do(ctx, http.MethodGet, fmt.Sprintf("/repos/%s/%s/actions/jobs/%d/logs", owner, repo, jobID), nil, "")
+	res, err := c.doWith(c.downloader(), ctx, http.MethodGet, fmt.Sprintf("/repos/%s/%s/actions/jobs/%d/logs", owner, repo, jobID), nil, "")
 	if err != nil {
 		return "", err
 	}
@@ -367,9 +379,16 @@ func (c *Client) LatestRelease(ctx context.Context, owner, repo string) (*Releas
 	return &r, nil
 }
 
+func (c *Client) downloader() *http.Client {
+	if c.Download != nil {
+		return c.Download
+	}
+	return c.HTTP
+}
+
 // DownloadAsset streams a release asset (works for private repos) into w.
 func (c *Client) DownloadAsset(ctx context.Context, owner, repo string, id int64, w io.Writer) error {
-	res, err := c.do(ctx, http.MethodGet, fmt.Sprintf("/repos/%s/%s/releases/assets/%d", owner, repo, id), nil, "application/octet-stream")
+	res, err := c.doWith(c.downloader(), ctx, http.MethodGet, fmt.Sprintf("/repos/%s/%s/releases/assets/%d", owner, repo, id), nil, "application/octet-stream")
 	if err != nil {
 		return err
 	}

@@ -369,6 +369,11 @@ func (m *Manager) armIdle(sessionID string, l *live) {
 	l.idle = time.AfterFunc(m.IdleTimeout, func() {
 		m.mu.Lock()
 		stillIdle := m.live[sessionID] == l && !l.busy
+		if stillIdle {
+			// Forget it before shutting down, so a message sent meanwhile starts a fresh
+			// process (with --resume) instead of writing to one that is closing.
+			delete(m.live, sessionID)
+		}
 		m.mu.Unlock()
 		if stillIdle {
 			proc.Shutdown(30 * time.Second)
@@ -406,6 +411,37 @@ func (m *Manager) watchExit(sessionID string, l *live, proc Proc) {
 	}
 	m.bus.Changed()
 	go m.pump()
+}
+
+// Release closes an idle session's process (e.g. before the user resumes it in a
+// terminal). The next message resumes it in a new process. It fails while busy.
+func (m *Manager) Release(sessionID string) error {
+	m.mu.Lock()
+	for _, q := range m.queue {
+		if q.sessionID == sessionID {
+			m.mu.Unlock()
+			return ErrBusy
+		}
+	}
+	l := m.live[sessionID]
+	if l == nil {
+		m.mu.Unlock()
+		return nil
+	}
+	if l.busy {
+		m.mu.Unlock()
+		return ErrBusy
+	}
+	delete(m.live, sessionID)
+	if l.idle != nil {
+		l.idle.Stop()
+	}
+	proc := l.proc
+	m.mu.Unlock()
+	if proc != nil {
+		proc.Shutdown(5 * time.Second)
+	}
+	return nil
 }
 
 // Decide answers a pending approval.
