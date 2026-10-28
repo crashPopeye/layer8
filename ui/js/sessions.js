@@ -10,8 +10,8 @@ export function SessionsPane({ state, task, slice, sessions, session, onSelect, 
       <div class="log"><div class="empty">
         <div class="display">Ready</div>
         ${slice
-          ? html`Press <kbd>I</kbd> to implement <b>${slice.key}</b> in a fresh session. It reads the plan section and the handoff from the PR it is stacked on.`
-          : html`Start with <kbd>R</kbd> research, then <kbd>P</kbd> plan. Each workflow runs in a fresh context and hands off through the docs. Or type below for a free-form session.`}
+          ? html`Use <b>Implement</b> to implement <b>${slice.key}</b> in a fresh session. It reads the plan section and the handoff from the PR it is stacked on.`
+          : html`Start with <b>Research</b>, then <b>Plan</b>. Each workflow runs in a fresh context and hands off through the docs. Or type below for a free-form session.`}
       </div></div>
       ${newComposer}
     </div>`;
@@ -181,10 +181,10 @@ function Approval({ approval, run }) {
     <div class="what">Approve ${approval.toolName}?</div>
     <pre class="selectable">${describe(approval)}</pre>
     <div class="row">
-      <button class="key primary" onClick=${() => decide(true)}><kbd>A</kbd> Allow</button>
+      <button class="key primary" onClick=${() => decide(true)}>Allow</button>
       <input class="field" placeholder="Or tell the agent what to do instead…" value=${reason}
         onInput=${(e) => setReason(e.target.value)} onKeyDown=${(e) => e.key === "Enter" && decide(false)} />
-      <button class="key danger" onClick=${() => decide(false)}><kbd>D</kbd> Deny</button>
+      <button class="key danger" onClick=${() => decide(false)}>Deny</button>
     </div>
   </div></div>`;
 }

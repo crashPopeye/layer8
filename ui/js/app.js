@@ -1,8 +1,8 @@
 import { html, render, useState, useEffect, useRef, useCallback } from "/vendor/preact-htm.js";
 import { get, post, on, onOpen, startEvents, shell, connect, rememberToken } from "./api.js";
-import { useKeys, home, cls } from "./util.js";
+import { home, cls } from "./util.js";
 import { TaskView } from "./task.js";
-import { NewTaskSheet, SettingsSheet } from "./sheets.js";
+import { NewTaskSheet, SettingsSheet, CommandSheet } from "./sheets.js";
 
 const empty = { projects: [], folders: [], tasks: [], slices: [], sessions: [], approvals: [], running: 0, queued: 0, maxRunning: 6, update: {} };
 
@@ -87,6 +87,17 @@ function App() {
     setSheet("new");
   };
   const [error, setError] = useState(null);
+  const taskCommands = useRef([]);
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (!(e.metaKey || e.ctrlKey) || e.code !== "Space") return;
+      e.preventDefault();
+      setSheet((s) => (s === "search" ? null : "search"));
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   const run = useCallback(async (p) => {
     try {
@@ -104,16 +115,24 @@ function App() {
     if (taskId && !state.tasks.some((t) => t.id === taskId && t.status === "active")) setTaskId(null);
   }, [state.tasks, taskId]);
 
-  useKeys({ n: () => openNew(), ",": () => setSheet("settings") }, sheet === null);
-
   const task = state.tasks.find((t) => t.id === taskId) || null;
   const waiting = state.approvals.length;
+  const commands = () => [
+    { group: "Action", label: "New task", run: () => openNew() },
+    ...state.projects.filter((p) => state.folders.some((f) => f.projectId === p.id)).map((p) => ({ group: "Action", label: `New task in ${p.name}`, run: () => openNew(p.id) })),
+    ...taskCommands.current,
+    ...state.tasks.filter((t) => t.status === "active").map((t) => ({ group: "Task", label: `${t.linear ? t.linear.identifier + " " : ""}${t.title}`, run: () => setTaskId(t.id) })),
+    { group: "Menu", label: "Settings", run: () => setSheet("settings") },
+    ...(shell.available ? [{ group: "Action", label: "Check for updates", run: checkUpdate }] : []),
+  ];
 
   return html`
     <div class="frame">
       <header class="top" data-tauri-drag-region>
         <div class="wordmark" data-tauri-drag-region><img src="/logo.png" alt="" class="logo" data-tauri-drag-region /><span data-tauri-drag-region>layer<b>8</b></span></div>
-        <div class="grow" data-tauri-drag-region></div>
+        <div class="grow" data-tauri-drag-region>
+          <button class="searchbar" onClick=${() => setSheet("search")}><span>Search menus and actions</span><kbd>⌘ Space</kbd></button>
+        </div>
         <div title="Agents working / limit">
           <span class="label">Agents</span>
           <span class="meter">${Array.from({ length: state.maxRunning }, (_, i) => html`<i class=${i < state.running ? "on" : ""} />`)}</span>
@@ -124,7 +143,7 @@ function App() {
         <div title=${up ? "Connected" : "Backend not responding"}>
           <span class=${cls("sq", up ? "idle" : "failed")}></span><span class="label">${/^\d/.test(state.version || "") ? "v" + state.version : state.version || "?"}</span>
         </div>
-        <div><button class="key primary" onClick=${() => setSheet("new")}><kbd>N</kbd> New task</button></div>
+        <div><button class="key primary" onClick=${() => setSheet("new")}>New task</button></div>
       </header>
 
       <nav class="rail">
@@ -150,22 +169,15 @@ function App() {
           ${upd.error && html`<span class="bad">${upd.error}</span>`}
         </div>`}
         ${task
-          ? html`<${TaskView} key=${task.id} state=${state} task=${task} run=${run} keysEnabled=${sheet === null} />`
+          ? html`<${TaskView} key=${task.id} state=${state} task=${task} run=${run} commands=${taskCommands} />`
           : html`<div class="empty">
               <div class="display">No task open</div>
-              Press <kbd>N</kbd> to start one from a Linear ticket, or pick one on the left.
+              Start one from a Linear ticket with <b>New task</b>, or pick one on the left.
             </div>`}
       </main>
 
       <footer class="foot">
-        <span><kbd>N</kbd> new task</span>
-        <span><kbd>R</kbd>/<kbd>P</kbd>/<kbd>I</kbd> research · plan · implement</span>
-        <span><kbd>T</kbd> terminal</span>
-        <span><kbd>E</kbd> editor</span>
-        <span><kbd>A</kbd>/<kbd>D</kbd> allow · deny</span>
-        <span><kbd>1</kbd>–<kbd>4</kbd> tabs</span>
-        <span style="flex:1"></span>
-        <button class="key small ghost" onClick=${() => setSheet("settings")}><kbd>,</kbd> settings</button>
+        <button class="key small ghost" onClick=${() => setSheet("settings")}>Settings</button>
       </footer>
 
       ${sheet === "new" &&
@@ -181,6 +193,7 @@ function App() {
         }}
       />`}
       ${sheet === "settings" && html`<${SettingsSheet} state=${state} run=${run} upd=${upd} onCheckUpdate=${checkUpdate} onClose=${() => setSheet(null)} />`}
+      ${sheet === "search" && html`<${CommandSheet} commands=${commands()} onClose=${() => setSheet(null)} />`}
       ${error && html`<div class="toast" onClick=${() => setError(null)}><div class="label bad">error</div>${error}</div>`}
     </div>
   `;

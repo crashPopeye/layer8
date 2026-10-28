@@ -172,10 +172,8 @@ kbd {
 .key:hover { background: var(--raise-2); }
 .key:active { transform: translateY(0.5px); }
 .key:disabled { opacity: 0.4; cursor: default; background: var(--raise); }
-.key kbd { background: transparent; border-color: var(--line-2); }
 .key.primary { background: var(--accent); color: var(--accent-ink); box-shadow: 0 1px 0 rgba(255, 255, 255, 0.15) inset; }
 .key.primary:hover { filter: brightness(1.06); }
-.key.primary kbd { color: var(--accent-ink); border-color: rgba(0, 0, 0, 0.15); opacity: 0.75; }
 .key.danger:hover { color: var(--bad); background: rgba(255, 122, 122, 0.1); }
 .key.small { height: 24px; padding: 0 9px; font-size: 12px; border-radius: 7px; }
 .key.ghost { background: transparent; }
@@ -250,7 +248,6 @@ textarea.field { height: auto; padding: 9px 11px; resize: vertical; min-height: 
 .tab:hover { color: var(--ink-2); }
 .tab[aria-selected="true"] { color: var(--ink); }
 .tab[aria-selected="true"]::after { content: ""; position: absolute; left: 10px; right: 10px; bottom: -1px; height: 2px; border-radius: 2px; background: var(--accent); }
-.tab kbd { font-size: 9.5px; padding: 1px 4px; }
 .tab .n { color: var(--ink-3); font-weight: 450; }
 .subtabs { padding: 0 20px; background: transparent; }
 .subtabs .tab { height: 34px; font-size: 12.5px; }
@@ -428,7 +425,6 @@ textarea.field { height: auto; padding: 9px 11px; resize: vertical; min-height: 
 .toast .label { color: var(--bad); margin-bottom: 2px; }
 @keyframes rise-toast { from { opacity: 0; transform: translateY(6px); } }
 .banner { display: flex; gap: 12px; align-items: center; margin: 12px 20px 0; padding: 9px 14px; border-radius: var(--r); background: var(--accent-soft); border: 1px solid var(--accent-line); font-size: 13px; }
-.foot kbd { background: none; border: none; padding: 0; color: var(--ink-2); font-size: 11px; }
 .wordmark { gap: 8px; }
 .wordmark .logo { width: 22px; height: auto; image-rendering: pixelated; }
 
