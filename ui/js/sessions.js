@@ -192,8 +192,7 @@ export function Composer({ busy, busyText, placeholder, onSend, onStop }) {
     setText("");
   };
   return html`<div class="composer">
-    <span class="prompt">›</span>
-    <textarea ref=${ref} rows="1" value=${text} placeholder=${busy ? busyText : placeholder}
+    <textarea ref=${ref} rows="2" value=${text} placeholder=${placeholder}
       onInput=${(e) => setText(e.target.value)}
       onKeyDown=${(e) => {
         if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
@@ -202,10 +201,12 @@ export function Composer({ busy, busyText, placeholder, onSend, onStop }) {
         }
         if (e.key === "Escape") e.target.blur();
       }}></textarea>
-    <div class="send">
+    <div class="bar">
+      ${busy && html`<span class="status">${busyText}</span>`}
+      <span class="grow"></span>
       ${busy && onStop
-        ? html`<button class="key danger" onClick=${onStop}>■ Stop</button>`
-        : html`<button class="key" disabled=${!text.trim()} onClick=${send}>↵ Send</button>`}
+        ? html`<button class="round stop" title="Stop" aria-label="Stop" onClick=${onStop}><svg viewBox="0 0 16 16"><rect x="4" y="4" width="8" height="8" rx="1.5" /></svg></button>`
+        : html`<button class="round" title="Send" aria-label="Send" disabled=${!text.trim() || busy} onClick=${send}><svg viewBox="0 0 16 16"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" /></svg></button>`}
     </div>
   </div>`;
 }
