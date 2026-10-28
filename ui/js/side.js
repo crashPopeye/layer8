@@ -13,11 +13,6 @@ export function Side({ state, task, slice, session, run, onSession }) {
     return () => clearInterval(t);
   }, [task.id]);
   const open = comments.filter((c) => c.status === "open" && (c.target === "artifact" || c.sliceId === sliceId));
-  const archive = () => {
-    if (!confirm("Archive this task? Branches are kept.")) return;
-    const removeWorktrees = !!task.branch && confirm("Also remove its worktrees? (OK = remove, Cancel = keep them on disk)");
-    run(post(`/api/tasks/${task.id}/archive`, { removeWorktrees }));
-  };
   return html`
     <div class="block">
       <div class="label"><span>Comments for the agent</span><span>${open.length}</span></div>
@@ -42,7 +37,7 @@ export function Side({ state, task, slice, session, run, onSession }) {
       </dl>
       ${session.lastError && html`<div class="bad selectable" style="margin-top:6px;white-space:pre-wrap;max-height:120px;overflow:auto">${session.lastError}</div>`}
       <div class="btns">
-        <button class="key" disabled=${!session.claudeSessionId} title="claude --resume in this worktree's tmux session" onClick=${() => run(post(`/api/sessions/${session.id}/resume-terminal`))}>↗ Continue in terminal</button>
+        <button class="key" disabled=${!session.claudeSessionId} title="claude --resume in this worktree's tmux session" onClick=${() => run(post(`/api/sessions/${session.id}/resume-terminal`))}>Continue in terminal</button>
       </div>
     </div>`}
 
@@ -65,6 +60,12 @@ export function Side({ state, task, slice, session, run, onSession }) {
         <dt>tree</dt><dd class="selectable" title=${task.worktreePath}>${home(task.worktreePath)}</dd>
         <dt>cost</dt><dd>${usd(state.sessions.filter((s) => s.taskId === task.id).reduce((n, s) => n + s.costUsd, 0))}</dd>
       </dl>
-      <div class="btns"><button class="key danger" onClick=${archive}>Archive</button></div>
+      <div class="btns"><button class="key danger" onClick=${() => archiveTask(task, run)}>Archive</button></div>
     </div>`;
+}
+
+export function archiveTask(task, run) {
+  if (!confirm("Archive this task? Branches are kept.")) return;
+  const removeWorktrees = !!task.branch && confirm("Also remove its worktrees? (OK = remove, Cancel = keep them on disk)");
+  run(post(`/api/tasks/${task.id}/archive`, { removeWorktrees }));
 }

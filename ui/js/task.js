@@ -5,7 +5,7 @@ import { SessionsPane } from "./sessions.js";
 import { ChangesPane } from "./changes.js";
 import { PRPane } from "./pr.js";
 import { DocsPane } from "./docs.js";
-import { Side } from "./side.js";
+import { Side, archiveTask } from "./side.js";
 
 const TABS = [
   ["sessions", "Sessions"],
@@ -77,6 +77,9 @@ export function TaskView({ state, task, run, commands }) {
     ...TABS.map(([id, label]) => ({ group: "Tab", label, run: () => setTab(id) })),
     ...(slices.length ? [{ group: "Stack", label: "Task: research & plan", run: () => pick("") }] : []),
     ...slices.map((x) => ({ group: "Stack", label: `${x.key}: ${x.title}`, run: () => pick(x.id) })),
+    ...(session && ["queued", "running", "waiting_approval"].includes(session.status) ? [{ group: "Session", label: "Stop", run: () => run(post(`/api/sessions/${session.id}/interrupt`)) }] : []),
+    ...(session && session.claudeSessionId ? [{ group: "Session", label: "Continue in terminal", run: () => run(post(`/api/sessions/${session.id}/resume-terminal`)) }] : []),
+    { group: "Action", label: "Archive task", run: () => archiveTask(task, run) },
   ];
   useEffect(() => () => (commands.current = []), []);
 
