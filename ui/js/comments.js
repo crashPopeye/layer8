@@ -19,7 +19,7 @@ export function LineComments({ comments, editing, onDone, base, run, inSrc }) {
       <div class="selectable" style="white-space:pre-wrap">${c.body}</div>
     </div>`)}
     ${editing && html`<div class=${cls("cmt", inSrc && "in-src")}>
-      <textarea class="field" rows="3" ref=${(el) => el && !el.dataset.f && (el.dataset.f = "1", setTimeout(() => el.focus(), 20))} placeholder="Comment for the agent… (⌘↵ to save)" value=${body}
+      <textarea class="field" rows="3" ref=${(el) => el && !el.dataset.f && (el.dataset.f = "1", setTimeout(() => el.focus(), 20))} placeholder="Comment for the agent…" value=${body}
         onInput=${(e) => setBody(e.target.value)}
         onKeyDown=${(e) => {
           if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) save();

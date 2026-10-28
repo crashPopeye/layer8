@@ -104,7 +104,7 @@ export function NewTaskSheet({ state, projectId, onClose, onCreated, onSettings 
             ${siblings.length > 1 && html`<div class="seg">${siblings.map((f) => html`<button key=${f.id} aria-pressed=${f.id === folderId} onClick=${() => setFolderId(f.id)}>${f.name}</button>`)}</div>`}`
           : html`<button class="key" onClick=${onSettings}>Add a project first</button>`}
       </div>
-      <input ref=${search} class="field search" placeholder="Search Linear, or type ENG-123…  (⌘↵ for a plain task with this title)" value=${q} onInput=${(e) => setQ(e.target.value)} />
+      <input ref=${search} class="field search" placeholder="Search Linear, or type ENG-123…" value=${q} onInput=${(e) => setQ(e.target.value)} />
       <div class="sheet-body" ref=${list}>
         ${linearError && html`<div class="empty"><div class="signal">${linearError}</div>
           ${/not connected/.test(linearError) && html`<div class="btns"><button class="key" onClick=${onSettings}>Connect Linear</button></div>`}</div>`}
@@ -117,15 +117,15 @@ export function NewTaskSheet({ state, projectId, onClose, onCreated, onSettings 
           <span class="state">${i.state.name}</span>
         </div>`)}
       </div>
-      <div class="sheet-head" style="border-top:1px solid var(--rule);border-bottom:none">
+      <div class="sheet-head" style="border-top:1px solid var(--line);border-bottom:none">
         ${error ? html`<span class="bad selectable">${error}</span>`
           : busy ? html`<span class="dim">Creating worktree…</span>`
-          : html`<span class="faint"><kbd>↵</kbd> start from ticket · <kbd>⌘↵</kbd> plain task titled “${q || "…"}” · <kbd>esc</kbd> close</span>`}
+          : html`<span style="flex:1"></span><button class="key small ghost" disabled=${!q.trim()} onClick=${() => create({ title: q.trim() })}>Plain task${q.trim() ? ` “${q.trim()}”` : ""}</button>`}
       </div>
     </div>`;
 }
 
-/** Searches every menu and action the window offers right now; ↵ runs the highlighted one. */
+/** Searches every menu and action the window offers right now and runs the picked one. */
 export function CommandSheet({ commands, onClose }) {
   const [q, setQ] = useState("");
   const [cursor, setCursor] = useState(0);
@@ -210,7 +210,7 @@ export function SettingsSheet({ state, run, upd, onCheckUpdate, onClose }) {
     <div class="scrim" onClick=${onClose}></div>
     <div class="sheet">
       <div class="sheet-head"><span class="display">Settings</span><span style="flex:1"></span>
-        <button class="key" onClick=${onClose}>Esc</button><button class="key primary" onClick=${save}>Save</button></div>
+        <button class="key ghost" onClick=${onClose}>Close</button><button class="key primary" onClick=${save}>Save</button></div>
       <div class="sheet-body"><div class="form">
         <span class="label">Projects</span>
         <div style="display:grid;grid-template-columns:minmax(0,1fr);gap:12px">

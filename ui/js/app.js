@@ -91,7 +91,7 @@ function App() {
 
   useEffect(() => {
     const onKey = (e) => {
-      if (!(e.metaKey || e.ctrlKey) || e.code !== "Space") return;
+      if (!(e.metaKey || e.ctrlKey) || (e.code !== "Space" && e.code !== "KeyK")) return;
       e.preventDefault();
       setSheet((s) => (s === "search" ? null : "search"));
     };
@@ -131,7 +131,7 @@ function App() {
       <header class="top" data-tauri-drag-region>
         <div class="wordmark" data-tauri-drag-region><img src="/logo.png" alt="" class="logo" data-tauri-drag-region /><span data-tauri-drag-region>layer<b>8</b></span></div>
         <div class="grow" data-tauri-drag-region>
-          <button class="searchbar" onClick=${() => setSheet("search")}><span>Search menus and actions</span><kbd>⌘ Space</kbd></button>
+          <button class="searchbar" onClick=${() => setSheet("search")}><span>Search menus and actions</span></button>
         </div>
         <div title="Agents working / limit">
           <span class="label">Agents</span>
@@ -143,7 +143,7 @@ function App() {
         <div title=${up ? "Connected" : "Backend not responding"}>
           <span class=${cls("sq", up ? "idle" : "failed")}></span><span class="label">${/^\d/.test(state.version || "") ? "v" + state.version : state.version || "?"}</span>
         </div>
-        <div><button class="key primary" onClick=${() => setSheet("new")}>New task</button></div>
+        <div><button class="key ghost" onClick=${() => setSheet("settings")}>Settings</button><button class="key primary" onClick=${() => setSheet("new")}>New task</button></div>
       </header>
 
       <nav class="rail">
@@ -175,10 +175,6 @@ function App() {
               Start one from a Linear ticket with <b>New task</b>, or pick one on the left.
             </div>`}
       </main>
-
-      <footer class="foot">
-        <button class="key small ghost" onClick=${() => setSheet("settings")}>Settings</button>
-      </footer>
 
       ${sheet === "new" &&
       html`<${NewTaskSheet}
