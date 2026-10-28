@@ -258,9 +258,9 @@ func (u *Updater) install(ctx context.Context, rel *github.Release) error {
 	if b, err := exec.CommandContext(ctx, "/usr/bin/ditto", "-x", "-k", zipPath, out).CombinedOutput(); err != nil {
 		return fmt.Errorf("unzip: %v: %s", err, b)
 	}
-	newBundle := filepath.Join(out, filepath.Base(bundle))
-	if _, err := os.Stat(filepath.Join(newBundle, "Contents", "MacOS")); err != nil {
-		return fmt.Errorf("the update does not contain %s", filepath.Base(bundle))
+	newBundle, err := findApp(out)
+	if err != nil {
+		return err
 	}
 	if b, err := exec.CommandContext(ctx, "/usr/bin/codesign", "--verify", "--deep", "--strict", newBundle).CombinedOutput(); err != nil {
 		return fmt.Errorf("the update's signature is invalid: %s", strings.TrimSpace(string(b)))
@@ -284,6 +284,27 @@ func (u *Updater) install(ctx context.Context, rel *github.Release) error {
 	}
 	// The stage (with the previous bundle) is removed by the deferred RemoveAll.
 	return spawnRelauncher(bundle)
+}
+
+// findApp returns the single .app bundle at the top of dir.
+func findApp(dir string) (string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return "", err
+	}
+	var apps []string
+	for _, e := range entries {
+		if e.IsDir() && strings.HasSuffix(e.Name(), ".app") {
+			apps = append(apps, filepath.Join(dir, e.Name()))
+		}
+	}
+	if len(apps) != 1 {
+		return "", fmt.Errorf("the update should contain exactly one .app, found %d", len(apps))
+	}
+	if _, err := os.Stat(filepath.Join(apps[0], "Contents", "MacOS")); err != nil {
+		return "", fmt.Errorf("%s is not an app bundle", filepath.Base(apps[0]))
+	}
+	return apps[0], nil
 }
 
 // spawnRelauncher reopens bundle after this process has exited.

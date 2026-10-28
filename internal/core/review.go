@@ -54,6 +54,7 @@ type DiffResult struct {
 	Untracked []string      `json:"untracked"`
 	Commits   []gitx.Commit `json:"commits"`
 	Commit    *gitx.Commit  `json:"commit,omitempty"`
+	Dirty     bool          `json:"dirty"` // uncommitted changes in the worktree
 }
 
 // Diff returns everything on the branch since it left its parent (including
@@ -88,6 +89,7 @@ func (a *App) Diff(ctx context.Context, taskID, sliceID, sha string) (*DiffResul
 		out, err = gitx.RunRaw(ctx, dir, "diff", "--no-color", "--no-ext-diff", "-M", mb)
 		if err == nil {
 			res.Untracked, _ = gitx.UntrackedFiles(ctx, dir)
+			res.Dirty, _ = gitx.Dirty(ctx, dir)
 		}
 	}
 	if err != nil {

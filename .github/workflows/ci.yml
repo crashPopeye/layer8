@@ -1,9 +1,29 @@
 name: CI
+
 on:
   push:
-    branches-ignore: ["**"]
+    branches: ["**"]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  noop:
-    runs-on: ubuntu-latest
+  test:
+    runs-on: macos-15
     steps:
-      - run: "true"
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then echo "Not gofmt'd:"; echo "$unformatted"; exit 1; fi
+      - name: vet
+        run: go vet ./...
+      - name: test
+        run: go test -race ./...
+      - name: build app bundle
+        run: build/build-macos.sh 0.0.0-ci

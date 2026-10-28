@@ -1,6 +1,10 @@
 package updater
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestNewer(t *testing.T) {
 	cases := []struct {
@@ -48,5 +52,17 @@ func TestParseTeamID(t *testing.T) {
 func TestBundlePathOutsideApp(t *testing.T) {
 	if _, err := BundlePath(); err == nil {
 		t.Fatal("test binary is not in a bundle")
+	}
+}
+
+func TestFindApp(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := findApp(dir); err == nil {
+		t.Fatal("empty dir")
+	}
+	os.MkdirAll(filepath.Join(dir, "layer8.app", "Contents", "MacOS"), 0o755)
+	got, err := findApp(dir)
+	if err != nil || filepath.Base(got) != "layer8.app" {
+		t.Fatal(got, err)
 	}
 }

@@ -162,6 +162,34 @@ func newID() string {
 	return hex.EncodeToString(b)
 }
 
+// inheritedSessionVars identify a parent Claude Code session. When layer8 is
+// started from inside one (e.g. `open` run by an agent), passing them on would
+// make every agent join or report as that parent session.
+var inheritedSessionVars = []string{
+	"CLAUDECODE", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_PID",
+	"CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_REMOTE_SESSION_ID", "CLAUDE_CODE_SESSION_ATTENDED",
+	"CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN", "CLAUDE_AFTER_LAST_COMPACT",
+	"CLAUDE_ADDITIONAL_DIRECTORIES", "CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD", "CLAUDE_CODE_TEE_SDK_STDOUT",
+	"CLAUDE_CODE_INCLUDE_PARTIAL_MESSAGES",
+	// Same as the SDK: never leak Node debugging flags into the CLI.
+	"NODE_OPTIONS", "DEBUG",
+}
+
+// CleanEnv drops variables that would tie a spawned CLI to a parent session.
+func CleanEnv(in []string) []string {
+	out := make([]string, 0, len(in))
+outer:
+	for _, kv := range in {
+		for _, k := range inheritedSessionVars {
+			if strings.HasPrefix(kv, k+"=") {
+				continue outer
+			}
+		}
+		out = append(out, kv)
+	}
+	return out
+}
+
 // Args is exported for tests: the exact argv after the binary.
 func Args(o Options) []string {
 	args := []string{"--output-format", "stream-json", "--verbose", "--input-format", "stream-json", "--permission-prompt-tool=stdio"}
@@ -191,14 +219,7 @@ func Start(o Options, h Handlers) (*Process, error) {
 	}
 	cmd := exec.Command(bin, Args(o)...)
 	cmd.Dir = o.Cwd
-	env := []string{}
-	for _, kv := range os.Environ() {
-		// Same as the SDK: never leak Node debugging flags into the CLI.
-		if strings.HasPrefix(kv, "NODE_OPTIONS=") || strings.HasPrefix(kv, "DEBUG=") {
-			continue
-		}
-		env = append(env, kv)
-	}
+	env := CleanEnv(os.Environ())
 	// layer8 speaks the TypeScript SDK's control protocol, so it identifies as that host.
 	env = append(env, "CLAUDE_CODE_ENTRYPOINT=sdk-ts", "CLAUDE_CODE_SDK_READS_SESSION_STATE=1")
 	cmd.Env = append(env, o.Env...)

@@ -170,3 +170,10 @@ func TestArgsWithModel(t *testing.T) {
 		t.Fatal(a)
 	}
 }
+
+func TestCleanEnv(t *testing.T) {
+	got := CleanEnv([]string{"PATH=/bin", "CLAUDECODE=1", "CLAUDE_CODE_SESSION_ID=x", "CLAUDE_CONFIG_DIR=/c", "NODE_OPTIONS=--inspect", "ANTHROPIC_API_KEY=k"})
+	if strings.Join(got, ",") != "PATH=/bin,CLAUDE_CONFIG_DIR=/c,ANTHROPIC_API_KEY=k" {
+		t.Fatal(got)
+	}
+}
