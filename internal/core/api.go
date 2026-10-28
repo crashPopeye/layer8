@@ -245,7 +245,7 @@ func (a *App) Handler(h Hooks) http.Handler {
 	})
 
 	route("POST /api/linear/connect", func(r *http.Request) (any, error) {
-		u, err := a.Linear.AuthorizeURL(a.Config.Get().LinearClientID, a.linearRedirect())
+		u, err := a.Linear.AuthorizeURL(a.linearRedirect())
 		if err != nil {
 			return nil, bad(err.Error())
 		}
@@ -269,7 +269,7 @@ func (a *App) Handler(h Hooks) http.Handler {
 		if q.Get("code") != "" {
 			c, cancel := ctx(r, 30*time.Second)
 			defer cancel()
-			err = a.Linear.Finish(c, a.Config.Get().LinearClientID, a.linearRedirect(), q.Get("state"), q.Get("code"))
+			err = a.Linear.Finish(c, a.linearRedirect(), q.Get("state"), q.Get("code"))
 		}
 		a.bus.Changed()
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")

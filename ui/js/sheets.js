@@ -144,9 +144,6 @@ export function SettingsSheet({ state, run, upd, onCheckUpdate, onClose }) {
   const save = async () => {
     if ((await persist()) !== undefined) onClose();
   };
-  const connectLinear = async () => {
-    if ((await persist()) !== undefined) await run(post("/api/linear/connect"));
-  };
   const addFolder = async (projectId) => {
     const p = shell.available ? await shell.pickFolder() : prompt("Folder path");
     if (p) await run(post(`/api/projects/${projectId}/folders`, { path: p.trim() }));
@@ -189,11 +186,8 @@ export function SettingsSheet({ state, run, upd, onCheckUpdate, onClose }) {
         ${state.linearOAuth
           ? html`<div style="display:flex;gap:8px;align-items:center"><span>Connected</span>
               <button class="key small danger" onClick=${() => run(del("/api/linear/connect"))}>Disconnect</button></div>`
-          : html`<div style="display:flex;gap:6px">
-              <input class="field" placeholder="OAuth client ID" value=${cfg.linearClientId} onInput=${(e) => set("linearClientId", e.target.value.trim())} />
-              <button class="key" disabled=${!cfg.linearClientId} onClick=${connectLinear}>Connect Linear</button>
-            </div>`}
-        ${!state.linearOAuth && html`<span class="hint">Linear → Settings → API → OAuth applications: create one with the callback URL <code class="selectable">http://127.0.0.1:${cfg.port}/api/linear/callback</code> and paste its client ID. No secret is needed.</span>`}
+          : html`<div><button class="key" onClick=${() => run(post("/api/linear/connect"))}>Connect Linear</button></div>`}
+        ${!state.linearOAuth && html`<span class="hint">Opens Linear in your browser to approve access.</span>`}
         <span class="label">or an API key</span>
         <input class="field" type="password" placeholder=${cfg.linearApiKey === SET ? "•••••••• set — type to replace" : "lin_api_…"} value=${linearKey} onInput=${(e) => setLinearKey(e.target.value)} />
         <span class="hint">Linear → Settings → Security & access → Personal API keys. Used when Linear is not connected.</span>

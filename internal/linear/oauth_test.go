@@ -35,27 +35,27 @@ func TestOAuthFlow(t *testing.T) {
 	defer srv.Close()
 
 	o := NewOAuth(filepath.Join(t.TempDir(), "tok.json"))
-	o.TokenURL = srv.URL
+	o.ClientID, o.TokenURL = "cid", srv.URL
 	ctx := context.Background()
-	if auth, err := o.Authorization(ctx, "cid"); auth != "" || err != nil || o.Connected() {
+	if auth, err := o.Authorization(ctx); auth != "" || err != nil || o.Connected() {
 		t.Fatalf("not connected yet: %q %v", auth, err)
 	}
-	u, err := o.AuthorizeURL("cid", "http://127.0.0.1:7878/api/linear/callback")
+	u, err := o.AuthorizeURL("http://127.0.0.1:7878/api/linear/callback")
 	if err != nil {
 		t.Fatal(err)
 	}
 	q, _ := url.Parse(u)
 	challenge = q.Query().Get("code_challenge")
-	if err := o.Finish(ctx, "cid", "x", "wrong", "c1"); err == nil {
+	if err := o.Finish(ctx, "x", "wrong", "c1"); err == nil {
 		t.Fatal("a foreign state must be refused")
 	}
-	if err := o.Finish(ctx, "cid", "x", q.Query().Get("state"), "c1"); err != nil {
+	if err := o.Finish(ctx, "x", q.Query().Get("state"), "c1"); err != nil {
 		t.Fatal(err)
 	}
-	if auth, err := o.Authorization(ctx, "cid"); auth != "Bearer a2" || err != nil {
+	if auth, err := o.Authorization(ctx); auth != "Bearer a2" || err != nil {
 		t.Fatalf("refreshed auth %q %v", auth, err)
 	}
-	if auth, _ := o.Authorization(ctx, "cid"); auth != "Bearer a2" || issued != 2 {
+	if auth, _ := o.Authorization(ctx); auth != "Bearer a2" || issued != 2 {
 		t.Fatalf("fresh token reused: %q after %d grants", auth, issued)
 	}
 	o.Disconnect()

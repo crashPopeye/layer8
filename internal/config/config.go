@@ -39,8 +39,7 @@ type Config struct {
 	// Port the daemon listens on, on 127.0.0.1 only. Changing it needs a daemon restart.
 	Port int `json:"port"`
 
-	LinearAPIKey   string `json:"linearApiKey"`
-	LinearClientID string `json:"linearClientId"` // OAuth application for "Connect Linear"
+	LinearAPIKey string `json:"linearApiKey"`
 	// Empty means: ask the gh CLI (`gh auth token`).
 	GitHubToken string `json:"githubToken"`
 

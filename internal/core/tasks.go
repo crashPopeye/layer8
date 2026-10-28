@@ -425,7 +425,7 @@ func (a *App) ResumeInTerminal(ctx context.Context, sessionID string) error {
 // linear signs requests with the OAuth connection when there is one, else the personal API key.
 func (a *App) linear(ctx context.Context) (*linear.Client, error) {
 	cfg := a.Config.Get()
-	auth, err := a.Linear.Authorization(ctx, cfg.LinearClientID)
+	auth, err := a.Linear.Authorization(ctx)
 	if err != nil {
 		return nil, err
 	}

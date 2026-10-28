@@ -16,6 +16,10 @@ import (
 	"time"
 )
 
+// ClientID is layer8's public Linear OAuth application. PKCE replaces its secret, so
+// anyone can connect their own workspace without creating an application.
+const ClientID = "e95dee155b156088fd77ec7340193b48"
+
 const (
 	authorizeURL = "https://linear.app/oauth/authorize"
 	tokenURL     = "https://api.linear.app/oauth/token"
@@ -31,6 +35,7 @@ type Token struct {
 // secret), and keeps the token in a file, refreshing it before it expires.
 type OAuth struct {
 	Path     string
+	ClientID string // tests override
 	TokenURL string // tests override
 	HTTP     *http.Client
 
@@ -40,7 +45,7 @@ type OAuth struct {
 }
 
 func NewOAuth(path string) *OAuth {
-	return &OAuth{Path: path, TokenURL: tokenURL, HTTP: &http.Client{Timeout: 30 * time.Second}}
+	return &OAuth{Path: path, ClientID: ClientID, TokenURL: tokenURL, HTTP: &http.Client{Timeout: 30 * time.Second}}
 }
 
 func randomString() string {
@@ -50,16 +55,16 @@ func randomString() string {
 }
 
 // AuthorizeURL starts a sign-in; it replaces any sign-in still in progress.
-func (o *OAuth) AuthorizeURL(clientID, redirect string) (string, error) {
-	if clientID == "" {
-		return "", errors.New("set the Linear OAuth client ID first")
+func (o *OAuth) AuthorizeURL(redirect string) (string, error) {
+	if o.ClientID == "" {
+		return "", errors.New("this build of layer8 has no Linear OAuth application; use an API key")
 	}
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.state, o.verifier = randomString(), randomString()
 	sum := sha256.Sum256([]byte(o.verifier))
 	q := url.Values{
-		"client_id":             {clientID},
+		"client_id":             {o.ClientID},
 		"redirect_uri":          {redirect},
 		"response_type":         {"code"},
 		"scope":                 {"read,write"},
@@ -72,7 +77,7 @@ func (o *OAuth) AuthorizeURL(clientID, redirect string) (string, error) {
 }
 
 // Finish exchanges the code Linear redirected back with, if state matches the sign-in in progress.
-func (o *OAuth) Finish(ctx context.Context, clientID, redirect, state, code string) error {
+func (o *OAuth) Finish(ctx context.Context, redirect, state, code string) error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	if o.state == "" || state != o.state {
@@ -84,7 +89,7 @@ func (o *OAuth) Finish(ctx context.Context, clientID, redirect, state, code stri
 		"grant_type":    {"authorization_code"},
 		"code":          {code},
 		"redirect_uri":  {redirect},
-		"client_id":     {clientID},
+		"client_id":     {o.ClientID},
 		"code_verifier": {verifier},
 	})
 	if err != nil {
@@ -95,7 +100,7 @@ func (o *OAuth) Finish(ctx context.Context, clientID, redirect, state, code stri
 
 // Authorization returns the Authorization header value, refreshing the token when it
 // is about to expire, or "" when Linear is not connected.
-func (o *OAuth) Authorization(ctx context.Context, clientID string) (string, error) {
+func (o *OAuth) Authorization(ctx context.Context) (string, error) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	tok, err := o.load()
@@ -106,7 +111,7 @@ func (o *OAuth) Authorization(ctx context.Context, clientID string) (string, err
 		fresh, err := o.grant(ctx, url.Values{
 			"grant_type":    {"refresh_token"},
 			"refresh_token": {tok.Refresh},
-			"client_id":     {clientID},
+			"client_id":     {o.ClientID},
 		})
 		if err != nil {
 			return "", fmt.Errorf("refresh Linear sign-in (connect again in Settings): %w", err)
