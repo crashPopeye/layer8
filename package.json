@@ -1,0 +1,13 @@
+{
+  "name": "layer8",
+  "private": true,
+  "packageManager": "pnpm@10.28.0",
+  "scripts": {
+    "dev": "pnpm --parallel -r dev",
+    "daemon": "pnpm --filter layer8d dev",
+    "app": "pnpm --filter layer8-app tauri dev",
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck"
+  }
+}
