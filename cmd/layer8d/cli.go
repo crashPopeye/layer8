@@ -18,15 +18,16 @@ import (
 )
 
 type state struct {
-	Version    string            `json:"version"`
-	Workspaces []store.Workspace `json:"workspaces"`
-	Tasks      []store.Task      `json:"tasks"`
-	Slices     []store.Slice     `json:"slices"`
-	Sessions   []store.Session   `json:"sessions"`
-	Approvals  []store.Approval  `json:"approvals"`
-	Running    int               `json:"running"`
-	Queued     int               `json:"queued"`
-	MaxRunning int               `json:"maxRunning"`
+	Version    string           `json:"version"`
+	Projects   []store.Project  `json:"projects"`
+	Folders    []store.Folder   `json:"folders"`
+	Tasks      []store.Task     `json:"tasks"`
+	Slices     []store.Slice    `json:"slices"`
+	Sessions   []store.Session  `json:"sessions"`
+	Approvals  []store.Approval `json:"approvals"`
+	Running    int              `json:"running"`
+	Queued     int              `json:"queued"`
+	MaxRunning int              `json:"maxRunning"`
 }
 
 type cli struct {
@@ -37,6 +38,32 @@ type cli struct {
 
 func (x *cli) do(method, path string, body, out any) error {
 	return x.c.Do(x.ctx, method, path, body, out)
+}
+
+func (x *cli) project(name string) (store.Project, error) {
+	s, err := x.state()
+	if err != nil {
+		return store.Project{}, err
+	}
+	for _, p := range s.Projects {
+		if strings.EqualFold(p.Name, name) {
+			return p, nil
+		}
+	}
+	return store.Project{}, fmt.Errorf("no project named %q", name)
+}
+
+func (x *cli) addFolder(p store.Project, path string) error {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return err
+	}
+	var f store.Folder
+	if err := x.do(http.MethodPost, "/api/projects/"+p.ID+"/folders", map[string]string{"path": abs}, &f); err != nil {
+		return err
+	}
+	fmt.Printf("added %s to %s (%s)\n", f.Name, p.Name, f.Path)
+	return nil
 }
 
 func (x *cli) state() (*state, error) {
@@ -171,50 +198,70 @@ func runCLI(args []string) error {
 		return nil
 	case "tasks":
 		return x.tasks()
-	case "workspaces":
+	case "projects":
 		s, err := x.state()
 		if err != nil {
 			return err
 		}
-		for _, w := range s.Workspaces {
-			kind := "folder"
-			if w.IsGit {
-				kind = "git · " + w.DefaultBranch
+		for _, p := range s.Projects {
+			fmt.Println(p.Name)
+			for _, f := range s.Folders {
+				if f.ProjectID != p.ID {
+					continue
+				}
+				kind := "folder"
+				if f.IsGit {
+					kind = "git · " + f.DefaultBranch
+				}
+				fmt.Printf("  %-20s %-50s %s\n", f.Name, f.Path, kind)
 			}
-			fmt.Printf("%-20s %-50s %s\n", w.Name, w.Path, kind)
 		}
 		return nil
-	case "workspace":
-		if err := need(args, 2, "workspace add PATH"); err != nil || args[0] != "add" {
-			return errors.New("usage: layer8 workspace add PATH")
+	case "project":
+		if err := need(args, 2, "project add NAME [PATH...]"); err != nil || args[0] != "add" {
+			return errors.New("usage: layer8 project add NAME [PATH...]")
 		}
-		abs, err := filepath.Abs(args[1])
+		var p store.Project
+		if err := x.do(http.MethodPost, "/api/projects", map[string]string{"name": args[1]}, &p); err != nil {
+			return err
+		}
+		fmt.Printf("added project %s\n", p.Name)
+		for _, path := range args[2:] {
+			if err := x.addFolder(p, path); err != nil {
+				return err
+			}
+		}
+		return nil
+	case "folder":
+		if err := need(args, 3, "folder add PROJECT PATH"); err != nil || args[0] != "add" {
+			return errors.New("usage: layer8 folder add PROJECT PATH")
+		}
+		p, err := x.project(args[1])
 		if err != nil {
 			return err
 		}
-		var w store.Workspace
-		if err := x.do(http.MethodPost, "/api/workspaces", map[string]string{"path": abs}, &w); err != nil {
-			return err
-		}
-		fmt.Printf("added %s (%s)\n", w.Name, w.Path)
-		return nil
+		return x.addFolder(p, args[2])
 	case "new":
-		o, rest := flags(args, "t", "w")
+		o, rest := flags(args, "t", "p", "f")
 		s, err := x.state()
 		if err != nil {
 			return err
 		}
-		ws := ""
-		for _, w := range s.Workspaces {
-			if o["w"] == "" || strings.EqualFold(w.Name, o["w"]) {
-				ws = w.ID
+		inProject := map[string]bool{}
+		for _, p := range s.Projects {
+			inProject[p.ID] = o["p"] == "" || strings.EqualFold(p.Name, o["p"])
+		}
+		folder := ""
+		for _, f := range s.Folders {
+			if inProject[f.ProjectID] && (o["f"] == "" || strings.EqualFold(f.Name, o["f"])) {
+				folder = f.ID
 				break
 			}
 		}
-		if ws == "" {
-			return errors.New("no matching workspace (add one in the app first)")
+		if folder == "" {
+			return errors.New("no matching folder (add a project with `layer8 project add`)")
 		}
-		body := map[string]string{"workspaceId": ws, "title": o["t"]}
+		body := map[string]string{"folderId": folder, "title": o["t"]}
 		if len(rest) > 0 {
 			body["linearIssue"] = rest[0]
 		}

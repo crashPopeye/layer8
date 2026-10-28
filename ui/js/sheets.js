@@ -19,12 +19,15 @@ const store = {
   },
 };
 
-export function NewTaskSheet({ state, onClose, onCreated, onSettings }) {
-  const workspaces = state.workspaces;
-  const [wsId, setWsId] = useState(() => {
-    const saved = store.get("layer8.lastWorkspace");
-    return workspaces.some((w) => w.id === saved) ? saved : workspaces[0] && workspaces[0].id;
+export function NewTaskSheet({ state, projectId, onClose, onCreated, onSettings }) {
+  const [folderId, setFolderId] = useState(() => {
+    const candidates = state.folders.filter((f) => !projectId || f.projectId === projectId);
+    const saved = store.get("layer8.lastFolder");
+    return candidates.some((f) => f.id === saved) ? saved : candidates[0] && candidates[0].id;
   });
+  const folder = state.folders.find((f) => f.id === folderId);
+  const projects = state.projects.filter((p) => state.folders.some((f) => f.projectId === p.id));
+  const siblings = folder ? state.folders.filter((f) => f.projectId === folder.projectId) : [];
   const [q, setQ] = useState("");
   const [issues, setIssues] = useState(null);
   const [linearError, setLinearError] = useState(null);
@@ -39,7 +42,7 @@ export function NewTaskSheet({ state, onClose, onCreated, onSettings }) {
   useEffect(() => {
     if (!state.hasLinear) {
       setIssues([]);
-      setLinearError("Linear API key is not configured");
+      setLinearError("Linear is not connected");
       return;
     }
     let live = true;
@@ -72,12 +75,12 @@ export function NewTaskSheet({ state, onClose, onCreated, onSettings }) {
   }, [cursor]);
 
   const create = async (body) => {
-    if (!wsId || busy) return;
+    if (!folderId || busy) return;
     setBusy(true);
     setError(null);
-    store.set("layer8.lastWorkspace", wsId);
+    store.set("layer8.lastFolder", folderId);
     try {
-      onCreated(await post("/api/tasks", { workspaceId: wsId, ...body }));
+      onCreated(await post("/api/tasks", { folderId, ...body }));
     } catch (e) {
       setError(e.message);
       setBusy(false);
@@ -96,14 +99,15 @@ export function NewTaskSheet({ state, onClose, onCreated, onSettings }) {
     }}>
       <div class="sheet-head">
         <span class="display">New task</span><span style="flex:1"></span><span class="label">in</span>
-        ${workspaces.length
-          ? html`<div class="seg">${workspaces.map((w) => html`<button key=${w.id} aria-pressed=${w.id === wsId} onClick=${() => setWsId(w.id)}>${w.name}</button>`)}</div>`
-          : html`<button class="key" onClick=${onSettings}>Add a workspace first</button>`}
+        ${projects.length
+          ? html`<div class="seg">${projects.map((p) => html`<button key=${p.id} aria-pressed=${!!folder && folder.projectId === p.id} onClick=${() => setFolderId(state.folders.find((f) => f.projectId === p.id).id)}>${p.name}</button>`)}</div>
+            ${siblings.length > 1 && html`<div class="seg">${siblings.map((f) => html`<button key=${f.id} aria-pressed=${f.id === folderId} onClick=${() => setFolderId(f.id)}>${f.name}</button>`)}</div>`}`
+          : html`<button class="key" onClick=${onSettings}>Add a project first</button>`}
       </div>
       <input ref=${search} class="field search" placeholder="Search Linear, or type ENG-123…  (⌘↵ for a plain task with this title)" value=${q} onInput=${(e) => setQ(e.target.value)} />
       <div class="sheet-body" ref=${list}>
         ${linearError && html`<div class="empty"><div class="signal">${linearError}</div>
-          ${/not configured/.test(linearError) && html`<div class="btns"><button class="key" onClick=${onSettings}>Set Linear API key</button></div>`}</div>`}
+          ${/not connected/.test(linearError) && html`<div class="btns"><button class="key" onClick=${onSettings}>Connect Linear</button></div>`}</div>`}
         ${!linearError && issues === null && html`<div class="empty">Loading your tickets…</div>`}
         ${!linearError && issues && !issues.length && html`<div class="empty">No matching tickets.</div>`}
         ${shown.map((i, n) => html`<div key=${i.id} class="issue" aria-selected=${n === cursor} onMouseMove=${() => setCursor(n)} onClick=${() => create({ linearIssue: i.identifier })}>
@@ -129,24 +133,29 @@ export function SettingsSheet({ state, run, upd, onCheckUpdate, onClose }) {
   const [cfg, setCfg] = useState(null);
   const [linearKey, setLinearKey] = useState("");
   const [ghToken, setGhToken] = useState("");
-  const [path, setPath] = useState("");
+  const [projectName, setProjectName] = useState("");
   useEffect(() => {
     get("/api/config").then(setCfg);
   }, []);
   useEscape(onClose);
   if (!cfg) return null;
   const set = (k, v) => setCfg({ ...cfg, [k]: v });
+  const persist = () => run(put("/api/config", { ...cfg, linearApiKey: linearKey.trim() || cfg.linearApiKey, githubToken: ghToken.trim() || cfg.githubToken }));
   const save = async () => {
-    const ok = await run(put("/api/config", { ...cfg, linearApiKey: linearKey.trim() || cfg.linearApiKey, githubToken: ghToken.trim() || cfg.githubToken }));
-    if (ok !== undefined) onClose();
+    if ((await persist()) !== undefined) onClose();
   };
-  const addWorkspace = async (p) => {
+  const connectLinear = async () => {
+    if ((await persist()) !== undefined) await run(post("/api/linear/connect"));
+  };
+  const addFolder = async (projectId) => {
+    const p = shell.available ? await shell.pickFolder() : prompt("Folder path");
+    if (p) await run(post(`/api/projects/${projectId}/folders`, { path: p.trim() }));
+  };
+  const addProject = async () => {
+    const p = await run(post("/api/projects", { name: projectName.trim() }));
     if (!p) return;
-    if (await run(post("/api/workspaces", { path: p }))) setPath("");
-  };
-  const pick = async () => {
-    const p = await shell.pickFolder();
-    if (p) addWorkspace(p);
+    setProjectName("");
+    addFolder(p.id);
   };
   const toggle = (k) => html`<div class="seg"><button aria-pressed=${!!cfg[k]} onClick=${() => set(k, true)}>on</button><button aria-pressed=${!cfg[k]} onClick=${() => set(k, false)}>off</button></div>`;
 
@@ -156,22 +165,38 @@ export function SettingsSheet({ state, run, upd, onCheckUpdate, onClose }) {
       <div class="sheet-head"><span class="display">Settings</span><span style="flex:1"></span>
         <button class="key" onClick=${onClose}>Esc</button><button class="key primary" onClick=${save}>Save</button></div>
       <div class="sheet-body"><div class="form">
-        <span class="label">Workspaces</span>
-        <div style="display:grid;gap:4px">
-          ${state.workspaces.map((w) => html`<div key=${w.id} class="list-row" style="cursor:default;padding-left:0">
-            <span style="width:120px" class="ellipsis">${w.name}</span><span class="grow faint">${home(w.path)}</span>
-            <span class="faint">${w.isGit ? "git · " + w.defaultBranch : "folder"}</span>
-            <button class="key small danger" onClick=${() => confirm(`Remove ${w.name} and its tasks from layer8? Files and branches are not touched.`) && run(del(`/api/workspaces/${w.id}`))}>✕</button>
+        <span class="label">Projects</span>
+        <div style="display:grid;grid-template-columns:minmax(0,1fr);gap:12px">
+          ${state.projects.map((p) => html`<div key=${p.id} style="display:grid;grid-template-columns:minmax(0,1fr);gap:2px">
+            <div class="list-row" style="cursor:default;padding-left:0">
+              <span class="grow ellipsis">${p.name}</span>
+              <button class="key small" onClick=${() => addFolder(p.id)}>Add folder…</button>
+              <button class="key small danger" onClick=${() => confirm(`Remove the project ${p.name} and its tasks from layer8? Files and branches are not touched.`) && run(del(`/api/projects/${p.id}`))}>✕</button>
+            </div>
+            ${state.folders.filter((f) => f.projectId === p.id).map((f) => html`<div key=${f.id} class="list-row" style="cursor:default">
+              <span style="width:120px" class="ellipsis">${f.name}</span><span class="grow faint ellipsis">${home(f.path)}</span>
+              <span class="faint">${f.isGit ? "git · " + f.defaultBranch : "folder"}</span>
+              <button class="key small danger" onClick=${() => confirm(`Remove ${f.name} and its tasks from ${p.name}? Files and branches are not touched.`) && run(del(`/api/folders/${f.id}`))}>✕</button>
+            </div>`)}
           </div>`)}
           <div style="display:flex;gap:6px">
-            ${shell.available && html`<button class="key" onClick=${pick}>Choose folder…</button>`}
-            <input class="field" placeholder="or paste /path/to/folder" value=${path} onInput=${(e) => setPath(e.target.value)} onKeyDown=${(e) => e.key === "Enter" && addWorkspace(path.trim())} />
+            <input class="field" placeholder="New project name" value=${projectName} onInput=${(e) => setProjectName(e.target.value)} onKeyDown=${(e) => e.key === "Enter" && projectName.trim() && addProject()} />
+            <button class="key" disabled=${!projectName.trim()} onClick=${addProject}>Add project</button>
           </div>
         </div>
 
-        <span class="label">Linear API key</span>
+        <span class="label">Linear</span>
+        ${state.linearOAuth
+          ? html`<div style="display:flex;gap:8px;align-items:center"><span>Connected</span>
+              <button class="key small danger" onClick=${() => run(del("/api/linear/connect"))}>Disconnect</button></div>`
+          : html`<div style="display:flex;gap:6px">
+              <input class="field" placeholder="OAuth client ID" value=${cfg.linearClientId} onInput=${(e) => set("linearClientId", e.target.value.trim())} />
+              <button class="key" disabled=${!cfg.linearClientId} onClick=${connectLinear}>Connect Linear</button>
+            </div>`}
+        ${!state.linearOAuth && html`<span class="hint">Linear → Settings → API → OAuth applications: create one with the callback URL <code class="selectable">http://127.0.0.1:${cfg.port}/api/linear/callback</code> and paste its client ID. No secret is needed.</span>`}
+        <span class="label">or an API key</span>
         <input class="field" type="password" placeholder=${cfg.linearApiKey === SET ? "•••••••• set — type to replace" : "lin_api_…"} value=${linearKey} onInput=${(e) => setLinearKey(e.target.value)} />
-        <span class="hint">Linear → Settings → Security & access → Personal API keys.</span>
+        <span class="hint">Linear → Settings → Security & access → Personal API keys. Used when Linear is not connected.</span>
         <span class="label">Linear sub-issues</span>${toggle("createLinearSubIssues")}
         <span class="hint">Split into PRs creates one sub-issue per PR, so each PR links to its own issue.</span>
 

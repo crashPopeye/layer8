@@ -1,9 +1,10 @@
-// Package core ties layer8 together: workspaces, tasks, PR slices, sessions,
+// Package core ties layer8 together: folders, tasks, PR slices, sessions,
 // GitHub tracking and background sync. The UI talks to it through api.go.
 package core
 
 import (
 	"context"
+	"github.com/crashPopeye/layer8/internal/linear"
 	"log"
 	"sync"
 	"sync/atomic"
@@ -23,6 +24,7 @@ type App struct {
 	Config   *config.Store
 	Store    *store.Store
 	Sessions *sessions.Manager
+	Linear   *linear.OAuth
 	Version  string
 
 	bus   *bus
@@ -65,7 +67,7 @@ func New(o Options) (*App, error) {
 	if emit == nil {
 		emit = func(string, any) {}
 	}
-	a := &App{Paths: o.Paths, Config: cfg, Store: st, Version: o.Version, bus: newBus(emit)}
+	a := &App{Paths: o.Paths, Config: cfg, Store: st, Linear: linear.NewOAuth(o.Paths.LinearToken), Version: o.Version, bus: newBus(emit)}
 	a.ctx, a.cancel = context.WithCancel(context.Background())
 	a.Sessions = sessions.New(st, a.bus, start, func() int { return a.Config.Get().MaxConcurrentSessions }, a.launch)
 	a.Sessions.OnTurnEnd = a.onTurnEnd

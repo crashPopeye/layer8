@@ -107,7 +107,7 @@ export function TaskView({ state, task, run, keysEnabled }) {
         </div>
 
         ${tab === "sessions" && html`<${SessionsPane} state=${state} task=${task} slice=${slice} sessions=${sessions} session=${session} onSelect=${setSessionId} run=${run} onStart=${start} />`}
-        ${tab === "changes" && (isGit ? html`<${ChangesPane} key=${ctx} task=${task} slice=${slice} state=${state} run=${run} />` : html`<div class="empty">Not a git workspace: there is nothing to diff.</div>`)}
+        ${tab === "changes" && (isGit ? html`<${ChangesPane} key=${ctx} task=${task} slice=${slice} state=${state} run=${run} />` : html`<div class="empty">Not a git repo: there is nothing to diff.</div>`)}
         ${tab === "pr" && html`<${PRPane} key=${ctx} task=${task} slice=${slice} slices=${slices} run=${run} onSession=${(s) => { setSessionId(s.id); setTab("sessions"); }} />`}
         ${tab === "docs" && html`<${DocsPane} task=${task} slice=${slice} state=${state} run=${run} />`}
       </div>

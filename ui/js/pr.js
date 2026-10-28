@@ -13,7 +13,7 @@ function NoSlice({ task, slices }) {
         ? html`Pick a PR in the stack above to see its checks and reviews.`
         : task.branch
         ? html`Write a plan with <kbd>P</kbd>, then <b>Split into PRs</b> to get one stacked branch and one fresh session per PR. Or use <b>Single PR</b> to ship this task's branch as one pull request.`
-        : html`Pull requests need a git workspace.`}
+        : html`Pull requests need a git repo.`}
     </div>`;
 }
 

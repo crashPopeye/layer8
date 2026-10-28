@@ -72,7 +72,7 @@ async fn daemon_info(state: tauri::State<'_, Shell>) -> Result<DaemonInfo, Strin
 
 #[tauri::command]
 async fn pick_folder(app: tauri::AppHandle) -> Result<Option<String>, String> {
-    let picked = tauri::async_runtime::spawn_blocking(move || app.dialog().file().set_title("Choose a workspace folder").blocking_pick_folder())
+    let picked = tauri::async_runtime::spawn_blocking(move || app.dialog().file().set_title("Choose a folder").blocking_pick_folder())
         .await
         .map_err(|e| e.to_string())?;
     Ok(picked.and_then(|p| p.into_path().ok()).map(|p| p.to_string_lossy().to_string()))
