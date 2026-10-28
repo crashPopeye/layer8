@@ -94,6 +94,12 @@ type Session struct {
 	ClaudeSessionID string  `json:"claudeSessionId"`
 	Status          string  `json:"status"` // queued, running, waiting_approval, idle, failed, interrupted
 	Cwd             string  `json:"cwd"`
+	Harness         string  `json:"harness"` // claude, codex
+	Model           string  `json:"model"`   // "" = the harness default
+	Effort          string  `json:"effort"`
+	PermissionMode  string  `json:"permissionMode"` // default, acceptEdits, auto, bypassPermissions; "" = the harness's own settings
+	ContextTokens   int     `json:"contextTokens"`
+	ContextWindow   int     `json:"contextWindow"`
 	CostUSD         float64 `json:"costUsd"`
 	LastError       string  `json:"lastError"`
 	CreatedAt       string  `json:"createdAt"`
@@ -212,6 +218,14 @@ func (s *Store) migrate() error {
 	}
 	if err := s.ensureColumn("folders", "project_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
+	}
+	for col, def := range map[string]string{
+		"harness": "TEXT NOT NULL DEFAULT 'claude'", "model": "TEXT NOT NULL DEFAULT ''", "effort": "TEXT NOT NULL DEFAULT ''",
+		"permission_mode": "TEXT NOT NULL DEFAULT ''", "context_tokens": "INTEGER NOT NULL DEFAULT 0", "context_window": "INTEGER NOT NULL DEFAULT 0",
+	} {
+		if err := s.ensureColumn("sessions", col, def); err != nil {
+			return err
+		}
 	}
 	_, err := s.db.Exec(`
 INSERT OR IGNORE INTO projects (id, name, created_at)
@@ -567,11 +581,12 @@ func (s *Store) UpdateSlice(x Slice) error {
 
 // ---- sessions
 
-const sessionCols = `id,task_id,slice_id,kind,title,claude_session_id,status,cwd,cost_usd,last_error,created_at,updated_at`
+const sessionCols = `id,task_id,slice_id,kind,title,claude_session_id,status,cwd,harness,model,effort,permission_mode,context_tokens,context_window,cost_usd,last_error,created_at,updated_at`
 
 func scanSession(r scanner) (Session, error) {
 	var x Session
-	err := r.Scan(&x.ID, &x.TaskID, &x.SliceID, &x.Kind, &x.Title, &x.ClaudeSessionID, &x.Status, &x.Cwd, &x.CostUSD,
+	err := r.Scan(&x.ID, &x.TaskID, &x.SliceID, &x.Kind, &x.Title, &x.ClaudeSessionID, &x.Status, &x.Cwd,
+		&x.Harness, &x.Model, &x.Effort, &x.PermissionMode, &x.ContextTokens, &x.ContextWindow, &x.CostUSD,
 		&x.LastError, &x.CreatedAt, &x.UpdatedAt)
 	return x, err
 }
@@ -582,8 +597,12 @@ func (s *Store) InsertSession(x Session) (Session, error) {
 	if x.Status == "" {
 		x.Status = "queued"
 	}
-	_, err := s.db.Exec(`INSERT INTO sessions (`+sessionCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-		x.ID, x.TaskID, x.SliceID, x.Kind, x.Title, x.ClaudeSessionID, x.Status, x.Cwd, x.CostUSD, x.LastError, x.CreatedAt, x.UpdatedAt)
+	if x.Harness == "" {
+		x.Harness = "claude"
+	}
+	_, err := s.db.Exec(`INSERT INTO sessions (`+sessionCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		x.ID, x.TaskID, x.SliceID, x.Kind, x.Title, x.ClaudeSessionID, x.Status, x.Cwd,
+		x.Harness, x.Model, x.Effort, x.PermissionMode, x.ContextTokens, x.ContextWindow, x.CostUSD, x.LastError, x.CreatedAt, x.UpdatedAt)
 	return x, err
 }
 
@@ -619,6 +638,24 @@ func (s *Store) SetSessionStatus(id, status, lastError string) error {
 
 func (s *Store) SetClaudeSessionID(id, claudeID string) error {
 	_, err := s.db.Exec(`UPDATE sessions SET claude_session_id=? WHERE id=?`, claudeID, id)
+	return err
+}
+
+// SetSessionSettings changes what the session's next process starts with.
+func (s *Store) SetSessionSettings(id, model, effort, mode string) error {
+	_, err := s.db.Exec(`UPDATE sessions SET model=?, effort=?, permission_mode=?, updated_at=? WHERE id=?`, model, effort, mode, Now(), id)
+	return err
+}
+
+// SetSessionContext records how full the context window is; window 0 keeps the known window.
+func (s *Store) SetSessionContext(id string, tokens, window int) error {
+	_, err := s.db.Exec(`UPDATE sessions SET context_tokens=?, context_window=CASE WHEN ?>0 THEN ? ELSE context_window END WHERE id=?`, tokens, window, window, id)
+	return err
+}
+
+// DeleteSession removes a session with its events and approvals.
+func (s *Store) DeleteSession(id string) error {
+	_, err := s.db.Exec(`DELETE FROM sessions WHERE id=?`, id)
 	return err
 }
 

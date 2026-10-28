@@ -57,6 +57,14 @@ export const post = (p, b = {}) => api("POST", p, b);
 export const put = (p, b) => api("PUT", p, b);
 export const del = (p) => api("DELETE", p);
 
+/** Sends a file's bytes as the request body. */
+export async function upload(path, file) {
+  const res = await fetch(daemon.url + path, { method: "POST", headers: { Authorization: `Bearer ${daemon.token}` }, body: file });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error((data && data.error) || `HTTP ${res.status}`);
+  return data;
+}
+
 const q = (o) =>
   Object.entries(o)
     .filter(([, v]) => v !== undefined && v !== null && v !== "")

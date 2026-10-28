@@ -22,15 +22,7 @@ type Proc interface {
 	Done() <-chan struct{}
 }
 
-type StartFunc func(o claude.Options, h claude.Handlers) (Proc, error)
-
-func RealStart(o claude.Options, h claude.Handlers) (Proc, error) {
-	p, err := claude.Start(o, h)
-	if err != nil {
-		return nil, err // never wrap a nil *Process in a non-nil interface
-	}
-	return p, nil
-}
+type StartFunc func(harness string, o claude.Options, h claude.Handlers) (Proc, error)
 
 // Bus is how the manager tells the UI about changes.
 type Bus interface {
@@ -40,10 +32,12 @@ type Bus interface {
 
 // Launch describes what a session needs to (re)start its process.
 type Launch struct {
+	Harness            string
 	Cwd                string
 	AddDirs            []string
 	AppendSystemPrompt string
 	Model              string
+	Effort             string
 	PermissionMode     string
 }
 
@@ -51,6 +45,8 @@ type live struct {
 	proc         Proc
 	busy         bool // a turn is in flight
 	interrupting bool
+	stale        bool // settings changed: restart the process after this turn
+	context      int  // tokens in the context window
 	idle         *time.Timer
 	stderr       []string
 }
@@ -218,9 +214,9 @@ func (m *Manager) startTurn(sessionID, prompt string, l *live) {
 			fail(err)
 			return
 		}
-		proc, err = m.start(claude.Options{
+		proc, err = m.start(ln.Harness, claude.Options{
 			Cwd: ln.Cwd, Resume: s.ClaudeSessionID, AddDirs: ln.AddDirs,
-			AppendSystemPrompt: ln.AppendSystemPrompt, Model: ln.Model, PermissionMode: ln.PermissionMode,
+			AppendSystemPrompt: ln.AppendSystemPrompt, Model: ln.Model, Effort: ln.Effort, PermissionMode: ln.PermissionMode,
 		}, m.handlers(sessionID, l))
 		if err != nil {
 			fail(err)
@@ -309,6 +305,13 @@ func (m *Manager) onMessage(sessionID string, l *live, msg claude.Message) {
 		if msg.ParentToolUseID != nil {
 			parent = *msg.ParentToolUseID
 		}
+		if u := msg.Message.Usage; u != nil && parent == "" && u.Context() > 0 {
+			m.mu.Lock()
+			l.context = u.Context()
+			m.mu.Unlock()
+			_ = m.store.SetSessionContext(sessionID, u.Context(), 0)
+			m.bus.Changed()
+		}
 		for _, b := range msg.Message.Blocks() {
 			switch b.Type {
 			case "text":
@@ -334,8 +337,18 @@ func (m *Manager) onMessage(sessionID string, l *live, msg claude.Message) {
 		m.mu.Lock()
 		interrupted := l.interrupting
 		l.busy, l.interrupting = false, false
-		m.armIdle(sessionID, l)
+		if l.stale {
+			m.retire(sessionID, l, 30*time.Second)
+		} else {
+			m.armIdle(sessionID, l)
+		}
+		tokens := l.context
 		m.mu.Unlock()
+		window := 0
+		for _, u := range msg.ModelUsage {
+			window = max(window, u.ContextWindow)
+		}
+		_ = m.store.SetSessionContext(sessionID, tokens, window)
 		_ = m.store.SetSessionCost(sessionID, msg.TotalCostUSD)
 		ok := msg.Subtype == "success" && !msg.IsError
 		m.emit(sessionID, "result", map[string]any{
@@ -358,6 +371,62 @@ func (m *Manager) onMessage(sessionID string, l *live, msg claude.Message) {
 		}
 		go m.pump()
 	}
+}
+
+// retire forgets a process and shuts it down; the next message starts a new one. Caller holds m.mu.
+func (m *Manager) retire(sessionID string, l *live, grace time.Duration) {
+	if m.live[sessionID] == l {
+		delete(m.live, sessionID)
+	}
+	if l.idle != nil {
+		l.idle.Stop()
+	}
+	if l.proc != nil {
+		go l.proc.Shutdown(grace)
+	}
+}
+
+// Reconfigure makes the session's next turn start a process with its new settings.
+func (m *Manager) Reconfigure(sessionID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	l := m.live[sessionID]
+	if l == nil {
+		return
+	}
+	if l.busy {
+		l.stale = true
+		return
+	}
+	m.retire(sessionID, l, 30*time.Second)
+}
+
+// Remove stops everything a session is doing so it can be deleted.
+func (m *Manager) Remove(sessionID string) {
+	m.mu.Lock()
+	kept := m.queue[:0]
+	for _, q := range m.queue {
+		if q.sessionID != sessionID {
+			kept = append(kept, q)
+		}
+	}
+	m.queue = kept
+	var pending []*pendingApproval
+	for id, p := range m.approvals {
+		if p.sessionID == sessionID {
+			pending = append(pending, p)
+			delete(m.approvals, id)
+		}
+	}
+	if l := m.live[sessionID]; l != nil {
+		l.busy = false
+		m.retire(sessionID, l, 2*time.Second)
+	}
+	m.mu.Unlock()
+	for _, p := range pending {
+		p.respond(claude.Decision{Allow: false, Message: "The session was deleted."})
+	}
+	go m.pump()
 }
 
 // armIdle closes an idle process later; caller holds m.mu.

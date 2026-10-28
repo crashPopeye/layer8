@@ -4,13 +4,15 @@ package core
 
 import (
 	"context"
-	"github.com/crashPopeye/layer8/internal/linear"
 	"log"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/crashPopeye/layer8/internal/claude"
+	"github.com/crashPopeye/layer8/internal/codex"
 	"github.com/crashPopeye/layer8/internal/config"
+	"github.com/crashPopeye/layer8/internal/linear"
 	"github.com/crashPopeye/layer8/internal/prompts"
 	"github.com/crashPopeye/layer8/internal/sessions"
 	"github.com/crashPopeye/layer8/internal/store"
@@ -34,6 +36,8 @@ type App struct {
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 
+	caps sync.Map // harness+cwd -> capabilities
+
 	pollMu    sync.Mutex
 	syncMu    sync.Mutex
 	lastSync  atomic.Int64 // unix nanos of the last SyncAll start
@@ -43,7 +47,7 @@ type App struct {
 type Options struct {
 	Paths   config.Paths
 	Version string
-	Start   sessions.StartFunc // nil = the real claude CLI
+	Start   sessions.StartFunc // nil = the real agent CLIs
 	Emit    Emitter
 }
 
@@ -61,7 +65,7 @@ func New(o Options) (*App, error) {
 	}
 	start := o.Start
 	if start == nil {
-		start = sessions.RealStart
+		start = startAgent
 	}
 	emit := o.Emit
 	if emit == nil {
@@ -148,20 +152,30 @@ func (a *App) launch(s store.Session) (sessions.Launch, error) {
 		v.Base = a.parentBranch(t, x)
 	}
 	return sessions.Launch{
+		Harness:            s.Harness,
 		Cwd:                cwd,
 		AddDirs:            []string{t.ArtifactsPath},
 		AppendSystemPrompt: prompts.Context(v),
-		Model:              a.Config.Get().Model,
-		PermissionMode:     permissionFlag(a.Config.Get().PermissionMode),
+		Model:              s.Model,
+		Effort:             s.Effort,
+		PermissionMode:     s.PermissionMode,
 	}, nil
 }
 
-// permissionFlag maps the setting to the CLI flag; "settings" passes none.
-func permissionFlag(mode string) string {
-	if mode == "settings" {
-		return ""
+// startAgent starts the CLI of the session's harness.
+func startAgent(harness string, o claude.Options, h claude.Handlers) (sessions.Proc, error) {
+	if harness == "codex" {
+		p, err := codex.Start(o, h)
+		if err != nil {
+			return nil, err
+		}
+		return p, nil
 	}
-	return mode
+	p, err := claude.Start(o, h)
+	if err != nil {
+		return nil, err // never wrap a nil *Process in a non-nil interface
+	}
+	return p, nil
 }
 
 // ---- UI event bus

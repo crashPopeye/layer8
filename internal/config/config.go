@@ -158,7 +158,7 @@ func normalize(c Config, p Paths) Config {
 		c.Editor = d.Editor
 	}
 	switch c.PermissionMode {
-	case "acceptEdits", "default", "settings":
+	case "default", "acceptEdits", "auto", "bypassPermissions", "settings":
 	default:
 		c.PermissionMode = d.PermissionMode
 	}

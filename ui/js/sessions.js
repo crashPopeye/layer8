@@ -1,9 +1,10 @@
 import { html, useState, useEffect, useRef, useMemo } from "/vendor/preact-htm.js";
-import { get, post, onSessionEvents } from "./api.js";
+import { get, post, put, del, upload, onSessionEvents } from "./api.js";
 import { clock, cls, usd } from "./util.js";
 
 export function SessionsPane({ state, task, slice, sessions, session, onSelect, run, onStart }) {
   const approvals = state.approvals.filter((a) => session && a.sessionId === session.id);
+  const newComposer = html`<${Composer} task=${task} run=${run} placeholder="Start a chat session here" onSend=${(t, settings) => onStart("chat", t, settings)} />`;
   if (!sessions.length) {
     return html`<div class="pane">
       <div class="log"><div class="empty">
@@ -12,15 +13,22 @@ export function SessionsPane({ state, task, slice, sessions, session, onSelect, 
           ? html`Press <kbd>I</kbd> to implement <b>${slice.key}</b> in a fresh session. It reads the plan section and the handoff from the PR it is stacked on.`
           : html`Start with <kbd>R</kbd> research, then <kbd>P</kbd> plan. Each workflow runs in a fresh context and hands off through the docs. Or type below for a free-form session.`}
       </div></div>
-      <${Composer} busy=${false} placeholder="Start a chat session here" onSend=${(t) => onStart("chat", t)} />
+      ${newComposer}
     </div>`;
   }
   const busy = session && ["queued", "running", "waiting_approval"].includes(session.status);
+  const remove = async (s) => {
+    const working = ["queued", "running", "waiting_approval"].includes(s.status);
+    if (!confirm(working ? `Stop and delete "${s.title}"? Its history is removed.` : `Delete "${s.title}" and its history?`)) return;
+    await run(del(`/api/sessions/${s.id}`));
+    if (session && s.id === session.id) onSelect(null);
+  };
   return html`<div class="pane">
     <div class="tabs subtabs">
-      ${sessions.map((s) => html`<button key=${s.id} class="tab" aria-selected=${session && s.id === session.id} onClick=${() => onSelect(s.id)} title=${s.title}>
+      ${sessions.map((s) => html`<div key=${s.id} class="tab session-tab" aria-selected=${session && s.id === session.id} onClick=${() => onSelect(s.id)} title=${s.title}>
         <span class=${cls("sq", s.status)}></span>${s.title.length > 26 ? s.title.slice(0, 26) + "…" : s.title}
-      </button>`)}
+        <button class="x" title="Delete session" onClick=${(e) => { e.stopPropagation(); remove(s); }}>✕</button>
+      </div>`)}
       <button class="tab" title="New chat session here" onClick=${() => onSelect("__new")}>+</button>
     </div>
     ${session
@@ -29,6 +37,10 @@ export function SessionsPane({ state, task, slice, sessions, session, onSelect, 
             ${approvals.map((a) => html`<${Approval} key=${a.id} approval=${a} run=${run} />`)}
           </${Log}>
           <${Composer}
+            key=${session.id}
+            task=${task}
+            session=${session}
+            run=${run}
             busy=${busy}
             busyText=${session.status === "queued" ? "Queued: waiting for a free agent slot" : "Agent is working…"}
             placeholder=${`Message this ${session.kind} session`}
@@ -36,7 +48,7 @@ export function SessionsPane({ state, task, slice, sessions, session, onSelect, 
             onStop=${() => run(post(`/api/sessions/${session.id}/interrupt`))}
           />`
       : html`<div class="log"><div class="empty">New free-form session in this ${slice ? "PR's" : "task's"} worktree.</div></div>
-          <${Composer} busy=${false} placeholder="Start a chat session here" onSend=${(t) => onStart("chat", t)} />`}
+          ${newComposer}`}
   </div>`;
 }
 
@@ -177,35 +189,160 @@ function Approval({ approval, run }) {
   </div></div>`;
 }
 
-export function Composer({ busy, busyText, placeholder, onSend, onStop }) {
+export const HARNESSES = { claude: "Claude Code", codex: "Codex" };
+const MODES = { default: "Ask", acceptEdits: "Auto-accept edits", auto: "Auto-accept", bypassPermissions: "Bypass permissions" };
+const PREFS = "layer8.composer";
+
+/** The settings new sessions start with: the last ones picked in a composer. */
+export function sessionDefaults() {
+  try {
+    return { harness: "claude", model: "", effort: "", permissionMode: "acceptEdits", ...JSON.parse(localStorage.getItem(PREFS) || "{}") };
+  } catch {
+    return { harness: "claude", model: "", effort: "", permissionMode: "acceptEdits" };
+  }
+}
+
+const capsCache = new Map();
+function useCapabilities(taskId, harness) {
+  const key = `${taskId}/${harness}`;
+  const [caps, setCaps] = useState(capsCache.get(key) || null);
+  useEffect(() => {
+    setCaps(capsCache.get(key) || null);
+    if (capsCache.has(key)) return;
+    let live = true;
+    get(`/api/tasks/${taskId}/capabilities?harness=${harness}`).then(
+      (c) => { capsCache.set(key, c); if (live) setCaps(c); },
+      () => live && setCaps({ models: [], commands: [] }),
+    );
+    return () => { live = false; };
+  }, [key]);
+  return caps || { models: [], commands: [] };
+}
+
+const kTokens = (n) => (n >= 1000 ? Math.round(n / 1000) + "k" : String(n));
+
+function ContextMeter({ session }) {
+  if (!session || !session.contextTokens) return null;
+  const pct = session.contextWindow ? Math.min(100, Math.round((100 * session.contextTokens) / session.contextWindow)) : null;
+  return html`<span class=${cls("ctx", pct >= 80 && "full")} title="Context window used by the last turn">
+    ${pct !== null && html`<span class="gauge"><i style=${`width:${pct}%`}></i></span>`}
+    ${kTokens(session.contextTokens)}${session.contextWindow ? " / " + kTokens(session.contextWindow) : " tokens"}
+  </span>`;
+}
+
+export function Composer({ task, session, run, busy, busyText, placeholder, onSend, onStop }) {
   const [text, setText] = useState("");
+  const [files, setFiles] = useState([]);
+  const [uploading, setUploading] = useState(0);
+  const [pick, setPick] = useState(0);
+  const [prefs, setPrefs] = useState(sessionDefaults);
+  const settings = session ? { harness: session.harness, model: session.model, effort: session.effort, permissionMode: session.permissionMode } : prefs;
+  const caps = useCapabilities(task.id, settings.harness);
   const ref = useRef(null);
+  const fileInput = useRef(null);
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
     el.style.height = "auto";
     el.style.height = `${el.scrollHeight}px`;
   }, [text]);
-  const send = () => {
-    if (!text.trim() || busy) return;
-    onSend(text.trim());
-    setText("");
+
+  const change = (k, v) => {
+    const next = { ...settings, [k]: v };
+    if (k === "harness") Object.assign(next, { model: "", effort: "" });
+    if (session) {
+      run(put(`/api/sessions/${session.id}/settings`, next));
+    } else {
+      setPrefs(next);
+      try {
+        localStorage.setItem(PREFS, JSON.stringify(next));
+      } catch {
+        /* private mode: not remembered */
+      }
+    }
   };
-  return html`<div class="composer">
-    <span class="prompt">›</span>
-    <textarea ref=${ref} rows="1" value=${text} placeholder=${busy ? busyText : placeholder}
-      onInput=${(e) => setText(e.target.value)}
+
+  const models = caps.models.filter((m) => m.value !== "default");
+  const model = caps.models.find((m) => m.value === (settings.model || "default")) || caps.models[0];
+  const efforts = (model && model.supportedEffortLevels) || [];
+
+  const slash = /^[\/$](\S*)$/.exec(text);
+  const matches = slash
+    ? caps.commands.filter((c) => c.name.toLowerCase().includes(slash[1].toLowerCase())).slice(0, 8)
+    : [];
+  const choose = (c) => {
+    setText((/^[\/$]/.test(c.name) ? c.name : "/" + c.name) + " ");
+    setPick(0);
+    ref.current && ref.current.focus();
+  };
+
+  const attach = async (list) => {
+    for (const f of list) {
+      setUploading((n) => n + 1);
+      const r = await run(upload(`/api/tasks/${task.id}/attachments?name=${encodeURIComponent(f.name || "pasted.png")}`, f));
+      setUploading((n) => n - 1);
+      if (r) setFiles((prev) => [...prev, r.path]);
+    }
+  };
+
+  const send = () => {
+    if ((!text.trim() && !files.length) || busy || uploading) return;
+    const body = text.trim() + (files.length ? `\n\nAttached files:\n${files.map((f) => "- " + f).join("\n")}` : "");
+    onSend(body.trim(), settings);
+    setText("");
+    setFiles([]);
+  };
+
+  const select = (k, value, options, title) => html`<select class="pick" title=${title} value=${value} onChange=${(e) => change(k, e.target.value)}>
+    ${options.map(([v, label]) => html`<option key=${v} value=${v}>${label}</option>`)}
+  </select>`;
+
+  return html`<div class="composer" onDragOver=${(e) => e.preventDefault()} onDrop=${(e) => { e.preventDefault(); attach([...e.dataTransfer.files]); }}>
+    ${matches.length > 0 && html`<div class="slash">
+      ${matches.map((c, i) => html`<button key=${c.name} aria-selected=${i === pick % matches.length} onMouseDown=${(e) => { e.preventDefault(); choose(c); }}>
+        <span class="name">${/^[\/$]/.test(c.name) ? c.name : "/" + c.name}</span>${c.argumentHint && html`<span class="faint"> ${c.argumentHint}</span>`}
+        <span class="desc">${c.description}</span>
+      </button>`)}
+    </div>`}
+    ${(files.length > 0 || uploading > 0) && html`<div class="files">
+      ${files.map((f) => html`<span key=${f} class="chip" title=${f}>${f.split("/").pop().replace(/^\d{6}\.\d{3}-/, "")}
+        <button class="x" onClick=${() => setFiles(files.filter((x) => x !== f))}>✕</button></span>`)}
+      ${uploading > 0 && html`<span class="faint">uploading…</span>`}
+    </div>`}
+    <textarea ref=${ref} rows="1" value=${text} placeholder=${busy ? busyText : placeholder + " · / for skills"}
+      onInput=${(e) => { setText(e.target.value); setPick(0); }}
+      onPaste=${(e) => { const fs = [...e.clipboardData.files]; if (fs.length) { e.preventDefault(); attach(fs); } }}
       onKeyDown=${(e) => {
+        if (matches.length && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+          e.preventDefault();
+          setPick((p) => (p + (e.key === "ArrowDown" ? 1 : matches.length - 1)) % matches.length);
+          return;
+        }
+        if (matches.length && (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey))) {
+          e.preventDefault();
+          choose(matches[pick % matches.length]);
+          return;
+        }
         if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
           e.preventDefault();
           send();
         }
         if (e.key === "Escape") e.target.blur();
       }}></textarea>
-    <div class="send">
+    <div class="bar">
+      <button class="key small ghost" title="Attach files (or drop or paste them)" onClick=${() => fileInput.current.click()}>＋ File</button>
+      <input ref=${fileInput} type="file" multiple hidden onChange=${(e) => { attach([...e.target.files]); e.target.value = ""; }} />
+      ${session
+        ? html`<span class="pick fixed" title="A session keeps its harness">${HARNESSES[settings.harness] || settings.harness}</span>`
+        : select("harness", settings.harness, Object.entries(HARNESSES), "Harness")}
+      ${select("model", settings.model, [["", model && settings.model === "" ? model.displayName : "Default model"], ...models.map((m) => [m.value, m.displayName])], "Model")}
+      ${efforts.length > 0 && select("effort", settings.effort, [["", "Default effort"], ...efforts.map((x) => [x, x])], "Effort")}
+      ${select("permissionMode", settings.permissionMode, [...(settings.permissionMode === "" ? [["", "Harness settings"]] : []), ...Object.entries(MODES)], "When the agent wants to act")}
+      <span class="grow"></span>
+      <${ContextMeter} session=${session} />
       ${busy && onStop
-        ? html`<button class="key danger" onClick=${onStop}>■ Stop</button>`
-        : html`<button class="key" disabled=${!text.trim()} onClick=${send}>↵ Send</button>`}
+        ? html`<button class="key small danger" onClick=${onStop}>■ Stop</button>`
+        : html`<button class="key small primary" disabled=${(!text.trim() && !files.length) || uploading > 0} onClick=${send}>↵ Send</button>`}
     </div>
   </div>`;
 }

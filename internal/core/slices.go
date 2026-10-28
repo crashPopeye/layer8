@@ -202,10 +202,18 @@ func (a *App) CreateSingleSlice(ctx context.Context, taskID string) (store.Slice
 }
 
 type StartSession struct {
-	TaskID  string `json:"taskId"`
-	SliceID string `json:"sliceId"`
-	Kind    string `json:"kind"` // research, plan, implement, slice, chat
-	Prompt  string `json:"prompt"`
+	TaskID   string           `json:"taskId"`
+	SliceID  string           `json:"sliceId"`
+	Kind     string           `json:"kind"` // research, plan, implement, slice, chat
+	Prompt   string           `json:"prompt"`
+	Settings *SessionSettings `json:"settings"` // nil = the configured defaults
+}
+
+type SessionSettings struct {
+	Harness        string `json:"harness"`
+	Model          string `json:"model"`
+	Effort         string `json:"effort"`
+	PermissionMode string `json:"permissionMode"`
 }
 
 func (a *App) StartSession(ctx context.Context, in StartSession) (store.Session, error) {
@@ -253,10 +261,27 @@ func (a *App) StartSession(ctx context.Context, in StartSession) (store.Session,
 	default:
 		return store.Session{}, fmt.Errorf("unknown workflow %q", in.Kind)
 	}
-	return a.createSession(store.Session{TaskID: t.ID, SliceID: in.SliceID, Kind: in.Kind, Title: title, Cwd: cwd}, prompt)
+	s := store.Session{TaskID: t.ID, SliceID: in.SliceID, Kind: in.Kind, Title: title, Cwd: cwd}
+	if in.Settings != nil {
+		s.Harness, s.Model, s.Effort, s.PermissionMode = in.Settings.Harness, in.Settings.Model, in.Settings.Effort, in.Settings.PermissionMode
+	}
+	return a.createSession(s, prompt)
 }
 
+// createSession starts a session; one without a harness gets the configured defaults.
 func (a *App) createSession(s store.Session, prompt string) (store.Session, error) {
+	if s.Harness == "" {
+		cfg := a.Config.Get()
+		s.Harness, s.Model, s.PermissionMode = "claude", cfg.Model, cfg.PermissionMode
+		if s.PermissionMode == "settings" {
+			s.PermissionMode = ""
+		}
+	}
+	switch s.Harness {
+	case "claude", "codex":
+	default:
+		return store.Session{}, fmt.Errorf("unknown harness %q", s.Harness)
+	}
 	unlock := a.lock(s.Cwd)
 	defer unlock()
 	return a.Sessions.Create(s, prompt)
@@ -271,6 +296,24 @@ func (a *App) SendMessage(sessionID, text string) error {
 	unlock := a.lock(s.Cwd)
 	defer unlock()
 	return a.Sessions.Send(sessionID, text)
+}
+
+// UpdateSession changes a session's model, effort and approval mode from its next turn on.
+func (a *App) UpdateSession(sessionID string, in SessionSettings) (store.Session, error) {
+	if err := a.Store.SetSessionSettings(sessionID, in.Model, in.Effort, in.PermissionMode); err != nil {
+		return store.Session{}, err
+	}
+	a.Sessions.Reconfigure(sessionID)
+	a.bus.Changed()
+	return a.Store.Session(sessionID)
+}
+
+// DeleteSession stops a session and removes it with its history.
+func (a *App) DeleteSession(sessionID string) error {
+	a.Sessions.Remove(sessionID)
+	err := a.Store.DeleteSession(sessionID)
+	a.bus.Changed()
+	return err
 }
 
 func firstLine(s string, n int) string {

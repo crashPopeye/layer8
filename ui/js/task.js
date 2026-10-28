@@ -1,7 +1,7 @@
 import { html, useState, useEffect } from "/vendor/preact-htm.js";
 import { post } from "./api.js";
 import { useKeys, home, cls, prSquare, statusLabel } from "./util.js";
-import { SessionsPane } from "./sessions.js";
+import { SessionsPane, sessionDefaults } from "./sessions.js";
 import { ChangesPane } from "./changes.js";
 import { PRPane } from "./pr.js";
 import { DocsPane } from "./docs.js";
@@ -32,8 +32,8 @@ export function TaskView({ state, task, run, keysEnabled }) {
   }, [slices.length]);
 
   const isGit = !!task.branch;
-  const start = async (kind, prompt = "") => {
-    const s = await run(post("/api/sessions", { taskId: task.id, sliceId: slice ? slice.id : "", kind, prompt }));
+  const start = async (kind, prompt = "", settings = sessionDefaults()) => {
+    const s = await run(post("/api/sessions", { taskId: task.id, sliceId: slice ? slice.id : "", kind, prompt, settings }));
     if (s) {
       setSessionId(s.id);
       setTab("sessions");

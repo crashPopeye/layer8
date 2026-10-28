@@ -356,6 +356,25 @@ func (a *App) Handler(h Hooks) http.Handler {
 		}
 		return nil, a.SendMessage(r.PathValue("id"), in.Text)
 	})
+	route("PUT /api/sessions/{id}/settings", func(r *http.Request) (any, error) {
+		var in SessionSettings
+		if err := readJSON(r, &in); err != nil {
+			return nil, err
+		}
+		return a.UpdateSession(r.PathValue("id"), in)
+	})
+	route("DELETE /api/sessions/{id}", func(r *http.Request) (any, error) {
+		return nil, a.DeleteSession(r.PathValue("id"))
+	})
+	route("GET /api/tasks/{id}/capabilities", func(r *http.Request) (any, error) {
+		c, cancel := ctx(r, 30*time.Second)
+		defer cancel()
+		return a.Capabilities(c, r.URL.Query().Get("harness"), r.PathValue("id"))
+	})
+	route("POST /api/tasks/{id}/attachments", func(r *http.Request) (any, error) {
+		path, err := a.Attach(r.PathValue("id"), r.URL.Query().Get("name"), r.Body)
+		return map[string]string{"path": path}, err
+	})
 	route("POST /api/sessions/{id}/interrupt", func(r *http.Request) (any, error) {
 		return nil, a.Sessions.Interrupt(r.PathValue("id"))
 	})

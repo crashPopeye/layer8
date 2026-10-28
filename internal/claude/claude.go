@@ -35,6 +35,7 @@ type Options struct {
 	AddDirs            []string
 	AppendSystemPrompt string
 	Model              string
+	Effort             string
 	PermissionMode     string   // "" leaves it to the user's Claude Code settings
 	Env                []string // extra KEY=VALUE pairs
 }
@@ -57,24 +58,40 @@ type Decision struct {
 
 // Message is one stdout line; Raw keeps everything for fields we don't model.
 type Message struct {
-	Type            string          `json:"type"`
-	Subtype         string          `json:"subtype"`
-	SessionID       string          `json:"session_id"`
-	ParentToolUseID *string         `json:"parent_tool_use_id"`
-	Message         *APIMessage     `json:"message"`
-	State           string          `json:"state"` // system/session_state_changed
-	IsError         bool            `json:"is_error"`
-	Result          string          `json:"result"`
-	DurationMS      int64           `json:"duration_ms"`
-	NumTurns        int             `json:"num_turns"`
-	TotalCostUSD    float64         `json:"total_cost_usd"`
-	Errors          []string        `json:"errors"`
-	Raw             json.RawMessage `json:"-"`
+	Type            string      `json:"type"`
+	Subtype         string      `json:"subtype"`
+	SessionID       string      `json:"session_id"`
+	ParentToolUseID *string     `json:"parent_tool_use_id"`
+	Message         *APIMessage `json:"message"`
+	State           string      `json:"state"` // system/session_state_changed
+	IsError         bool        `json:"is_error"`
+	Result          string      `json:"result"`
+	DurationMS      int64       `json:"duration_ms"`
+	NumTurns        int         `json:"num_turns"`
+	TotalCostUSD    float64     `json:"total_cost_usd"`
+	Errors          []string    `json:"errors"`
+	ModelUsage      map[string]struct {
+		ContextWindow int `json:"contextWindow"`
+	} `json:"modelUsage"` // result
+	Raw json.RawMessage `json:"-"`
 }
 
 type APIMessage struct {
 	Role    string          `json:"role"`
 	Content json.RawMessage `json:"content"` // string or []Block
+	Usage   *Usage          `json:"usage"`
+}
+
+type Usage struct {
+	InputTokens              int `json:"input_tokens"`
+	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+	OutputTokens             int `json:"output_tokens"`
+}
+
+// Context is how many tokens of the context window the request used.
+func (u Usage) Context() int {
+	return u.InputTokens + u.CacheReadInputTokens + u.CacheCreationInputTokens + u.OutputTokens
 }
 
 type Block struct {
@@ -199,6 +216,9 @@ func Args(o Options) []string {
 	}
 	if o.Model != "" {
 		args = append(args, "--model="+o.Model)
+	}
+	if o.Effort != "" {
+		args = append(args, "--effort="+o.Effort)
 	}
 	// The user's own settings, CLAUDE.md, skills and permission rules apply.
 	args = append(args, "--setting-sources=user,project,local")

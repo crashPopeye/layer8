@@ -104,7 +104,7 @@ func newApp(t *testing.T) *harness {
 		t.Fatal(err)
 	}
 	h := &harness{t: t}
-	start := func(o claude.Options, hd claude.Handlers) (sessions.Proc, error) {
+	start := func(_ string, o claude.Options, hd claude.Handlers) (sessions.Proc, error) {
 		h.mu.Lock()
 		h.starts = append(h.starts, o)
 		h.mu.Unlock()
@@ -509,5 +509,51 @@ func TestRewriteManifest(t *testing.T) {
 	}
 	if _, err := RewriteManifest(raw, "x", map[string]github.Asset{}); err == nil {
 		t.Fatal("missing asset should fail")
+	}
+}
+
+func TestSessionSettingsAndDelete(t *testing.T) {
+	h := newApp(t)
+	a := h.app
+	ctx := context.Background()
+	work, _ := repo(t)
+	folder, err := a.AddFolder(ctx, project(t, a), work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, err := a.CreateTask(ctx, NewTask{FolderID: folder.ID, Title: "Settings"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := a.StartSession(ctx, StartSession{TaskID: task.ID, Kind: "chat", Prompt: "hi",
+		Settings: &SessionSettings{Harness: "claude", Model: "sonnet", Effort: "low", PermissionMode: "default"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.waitIdle(s.ID)
+	if _, err := a.UpdateSession(s.ID, SessionSettings{Model: "opus", Effort: "max", PermissionMode: "bypassPermissions"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.SendMessage(s.ID, "again"); err != nil {
+		t.Fatal(err)
+	}
+	h.waitIdle(s.ID)
+	h.mu.Lock()
+	first, second := h.starts[len(h.starts)-2], h.starts[len(h.starts)-1]
+	h.mu.Unlock()
+	if first.Model != "sonnet" || first.Effort != "low" || first.PermissionMode != "default" {
+		t.Fatalf("first start %+v", first)
+	}
+	if second.Model != "opus" || second.Effort != "max" || second.PermissionMode != "bypassPermissions" || second.Resume == "" {
+		t.Fatalf("restart after settings change %+v", second)
+	}
+	if err := a.DeleteSession(s.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Store.Session(s.ID); err == nil {
+		t.Fatal("session still stored")
+	}
+	if evs, _ := a.Store.Events(s.ID, 0); len(evs) != 0 {
+		t.Fatalf("events kept: %d", len(evs))
 	}
 }

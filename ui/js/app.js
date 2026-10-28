@@ -128,7 +128,7 @@ function App() {
       </header>
 
       <nav class="rail">
-        <${Rail} state=${state} selected=${taskId} onSelect=${setTaskId} onNew=${openNew} onSettings=${() => setSheet("settings")} />
+        <${Rail} state=${state} selected=${taskId} onSelect=${setTaskId} onNew=${openNew} onSettings=${() => setSheet("settings")} run=${run} />
       </nav>
 
       <main class="main">
@@ -186,7 +186,7 @@ function App() {
   `;
 }
 
-function Rail({ state, selected, onSelect, onNew, onSettings }) {
+function Rail({ state, selected, onSelect, onNew, onSettings, run }) {
   if (!state.folders.length) {
     return html`<div class="empty">
       <div class="display">Empty</div>
@@ -213,6 +213,10 @@ function Rail({ state, selected, onSelect, onNew, onSettings }) {
           <span class="id">${t.linear ? t.linear.identifier : "—"}</span>
           <span class="ellipsis">${t.title}</span>
           <span class="lights">${sessions.slice(-6).map((s) => html`<span key=${s.id} class=${cls("sq", s.status)} title=${`${s.title}: ${s.status}`}></span>`)}</span>
+          <button class="key small ghost archive" title="Archive this task. Branches and worktrees are kept." onClick=${(e) => {
+            e.stopPropagation();
+            if (confirm(`Archive "${t.title}"? Branches and worktrees are kept.`)) run(post(`/api/tasks/${t.id}/archive`, { removeWorktrees: false }));
+          }}>Archive</button>
           <span class="sub ellipsis">
             ${needs ? html`<span class="waitc">needs approval · </span>` : ""}
             ${folders.length > 1 ? folderName[t.folderId] + " · " : ""}
