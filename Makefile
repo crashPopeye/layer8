@@ -1,17 +1,17 @@
 # Day-to-day commands. The app itself only builds on macOS.
 
-.PHONY: test dev app release
+.PHONY: test daemon app release
 
 test:
-	go vet ./internal/... ./cmd/... && go test -race ./internal/... ./cmd/...
+	go vet ./... && go test -race ./...
 
-# The UI and API in your browser at http://127.0.0.1:7999 (no desktop shell).
-dev:
-	go run ./cmd/devserver
+# The daemon in the foreground; the UI is at http://127.0.0.1:7878 (paste ~/.layer8/token).
+daemon:
+	go run ./cmd/layer8d daemon
 
-# A local layer8.app in build/out/.
+# A local build of layer8.app (no update signing) in src-tauri/target/.
 app:
-	build/build-macos.sh 0.0.0-dev
+	LAYER8_NO_UPDATER=1 build/build-macos.sh 0.0.0-dev
 
 # Tag and push a release; GitHub Actions builds and publishes it.
 release:

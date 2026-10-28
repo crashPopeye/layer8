@@ -9,6 +9,9 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  TAURI_CLI_VERSION: 2.12.4
+
 jobs:
   test:
     runs-on: macos-15
@@ -25,8 +28,20 @@ jobs:
         run: go vet ./...
       - name: test
         run: go test -race ./...
-      - name: build layer8d (universal)
-        run: |
-          GOARCH=arm64 go build -o /tmp/layer8d-arm64 ./cmd/layer8d
-          GOARCH=amd64 go build -o /tmp/layer8d-amd64 ./cmd/layer8d
-          lipo -create -output /tmp/layer8d /tmp/layer8d-arm64 /tmp/layer8d-amd64 && lipo -info /tmp/layer8d
+
+      - name: Rust targets
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/cargo-tauri
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            src-tauri/target
+          key: cargo-${{ runner.os }}-${{ env.TAURI_CLI_VERSION }}-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: cargo-${{ runner.os }}-${{ env.TAURI_CLI_VERSION }}-
+      - name: Tauri CLI
+        run: cargo tauri --version 2>/dev/null || cargo install tauri-cli --version "$TAURI_CLI_VERSION" --locked
+      - name: Build the app (no update signing)
+        run: LAYER8_NO_UPDATER=1 build/build-macos.sh 0.0.0-ci

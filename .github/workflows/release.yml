@@ -1,7 +1,7 @@
 name: Release
 
-# Publish a version either by pushing a tag (git tag v0.2.0 && git push origin v0.2.0)
-# or from the Actions tab: Release → Run workflow → version 0.2.0.
+# Publish a version from the Actions tab (Release → Run workflow → 0.2.0), or by
+# pushing a tag: git tag v0.2.0 && git push origin v0.2.0
 on:
   push:
     tags: ["v*.*.*"]
@@ -17,6 +17,9 @@ permissions:
 concurrency:
   group: release
   cancel-in-progress: false
+
+env:
+  TAURI_CLI_VERSION: 2.12.4
 
 jobs:
   release:
@@ -42,11 +45,26 @@ jobs:
       - name: Test
         run: go test ./...
 
+      - name: Rust targets
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/cargo-tauri
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            src-tauri/target
+          key: cargo-${{ runner.os }}-${{ env.TAURI_CLI_VERSION }}-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: cargo-${{ runner.os }}-${{ env.TAURI_CLI_VERSION }}-
+      - name: Tauri CLI
+        run: cargo tauri --version 2>/dev/null || cargo install tauri-cli --version "$TAURI_CLI_VERSION" --locked
+
       - name: Import signing certificate (optional)
+        if: env.HAS_SIGNING_CERT == 'true'
         env:
           MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
           MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
-        if: env.HAS_SIGNING_CERT == 'true'
         run: |
           KEYCHAIN="$RUNNER_TEMP/build.keychain-db"
           KEYCHAIN_PASSWORD="$(openssl rand -hex 16)"
@@ -59,8 +77,10 @@ jobs:
           security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
           rm "$RUNNER_TEMP/cert.p12"
 
-      - name: Build, sign and zip
+      - name: Build, sign and package
         env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
@@ -76,7 +96,9 @@ jobs:
           prerelease=""
           case "$VERSION" in *-*) prerelease="--prerelease";; esac
           gh release create "$TAG" \
-            build/out/layer8-$VERSION-macos-universal.zip \
+            "build/out/layer8-$VERSION-macos-universal.zip" \
+            "build/out/layer8-$VERSION-macos-universal.app.tar.gz" \
+            build/out/latest.json \
             build/out/checksums.txt \
             --target "$GITHUB_SHA" \
             --title "layer8 $TAG" \

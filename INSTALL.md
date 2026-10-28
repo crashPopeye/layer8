@@ -38,13 +38,16 @@ That's it: layer8 opens.
 > xattr -dr com.apple.quarantine /Applications/layer8.app
 > ```
 
+The first time it opens, macOS shows a **"Background Items Added"** notice for layer8. That's expected: layer8 runs a small background service, so your agents keep working after you close the window or quit the app. You can see it in **System Settings → General → Login Items & Extensions**.
+
 ## 3. First launch
 
 1. Press **,** (comma) to open Settings.
 2. **Workspaces:** click **Choose folder…** and pick a project folder. Any folder works. Git repositories also get a separate worktree for each task and each PR.
 3. **Linear API key:** in Linear, open **Settings → Security & access → Personal API keys**, create a key and paste it here.
 4. **Terminal** and **Editor:** pick the apps you use.
-5. Click **Save**.
+5. **Command line:** click **Install the layer8 command**, then try `layer8 help` in a terminal.
+6. Click **Save**.
 
 Press **N** to start a task from one of your Linear tickets.
 
@@ -52,30 +55,44 @@ The first time you click **Terminal**, macOS asks whether layer8 may control Ter
 
 ## Updates
 
-layer8 checks for new versions every few hours. When one is available, a bar appears at the top of the window: click **Install and restart**. Wait for running agents to finish first; layer8 won't update while they work.
+layer8 checks for new versions every few hours. When one is available, a bar appears at the top of the window: click **Install and restart**. Updates are signed, and layer8 refuses any download that doesn't match its signing key.
 
-You can also check by hand: **Settings → Updates → Check now**.
+Agents that are working when you update keep running. The background service switches to the new version by itself once they finish.
+
+## The command line
+
+```sh
+layer8 status                       # agents working, approvals waiting
+layer8 tasks                        # tasks, their PRs and sessions
+layer8 new ENG-123                  # start a task from a Linear ticket
+layer8 run ENG-123 plan             # start a workflow
+layer8 log <session> -f             # follow an agent live
+layer8 approve <id>                 # answer a permission prompt
+layer8 help                         # everything else
+```
 
 ## Where things live
 
 | What | Where |
 |---|---|
-| Settings, database, logs | `~/.layer8/` |
+| Settings, database, API token | `~/.layer8/` |
 | Research, plans and handoffs for each task | `~/.layer8/tasks/<task>/` |
 | Worktrees | `~/.layer8/worktrees/<repo>/<task>` (you can change this in Settings) |
-| Log file | `~/.layer8/logs/layer8.log` |
+| Logs | `~/.layer8/logs/layer8d.log` |
 
 ## Troubleshooting
 
+- **"layer8 can't start its service":** look at `~/.layer8/logs/layer8d.log`. If port 7878 is taken by another program, set `"port"` in `~/.layer8/config.json` and reopen layer8.
 - **"claude CLI not found":** layer8 reads your login shell's `PATH`. Check that `claude --version` works in a new Terminal window, then quit layer8 (⌘Q) and reopen it.
 - **"no GitHub token":** run `gh auth login`, or paste a token in **Settings → GitHub token**.
-- **The window disappeared:** closing the window only hides it, so agents keep working. Click the layer8 icon in the Dock to bring it back. **⌘Q** quits; the sessions it stops can be resumed later.
-- **Anything else:** look at `~/.layer8/logs/layer8.log`.
+- **The window disappeared:** closing the window only hides it. Click the layer8 icon in the Dock to bring it back.
 
 ## Uninstall
 
 ```sh
+/Applications/layer8.app/Contents/MacOS/layer8d uninstall-agent   # stops the background service
 rm -rf /Applications/layer8.app ~/.layer8
+rm -f /usr/local/bin/layer8 ~/.local/bin/layer8
 ```
 
 Your repositories and branches are not touched. Worktrees under `~/.layer8/worktrees` are removed with it, so commit or push anything you want to keep first.

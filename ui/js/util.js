@@ -35,6 +35,28 @@ export function useKeys(map, enabled = true) {
   });
 }
 
+/** Esc closes a sheet wherever focus is. */
+export function useEscape(onClose) {
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+}
+
+/** Focus an element once it is mounted (autofocus only works on page load). */
+export function useFocus(ref) {
+  useEffect(() => {
+    const t = setTimeout(() => ref.current && ref.current.focus(), 30);
+    return () => clearTimeout(t);
+  }, []);
+}
+
 export const statusLabel = (s) => (s || "").replace(/_/g, " ").toLowerCase();
 
 // Slice summary for chips: one status square per concern.

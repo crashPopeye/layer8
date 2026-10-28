@@ -1,6 +1,6 @@
 import { html, useState, useEffect, useMemo, useRef } from "/vendor/preact-htm.js";
 import { get, post, put, del, withQuery, shell } from "./api.js";
-import { home } from "./util.js";
+import { home, useEscape, useFocus } from "./util.js";
 
 const store = {
   get(k) {
@@ -32,6 +32,9 @@ export function NewTaskSheet({ state, onClose, onCreated, onSettings }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const list = useRef(null);
+  const search = useRef(null);
+  useEscape(onClose);
+  useFocus(search);
 
   useEffect(() => {
     if (!state.hasLinear) {
@@ -84,8 +87,7 @@ export function NewTaskSheet({ state, onClose, onCreated, onSettings }) {
   return html`
     <div class="scrim" onClick=${onClose}></div>
     <div class="sheet" onKeyDown=${(e) => {
-      if (e.key === "Escape") onClose();
-      else if (e.key === "ArrowDown") setCursor((c) => Math.min(c + 1, shown.length - 1));
+      if (e.key === "ArrowDown") setCursor((c) => Math.min(c + 1, shown.length - 1));
       else if (e.key === "ArrowUp") setCursor((c) => Math.max(c - 1, 0));
       else if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) q.trim() && create({ title: q.trim() });
       else if (e.key === "Enter" && shown[cursor]) create({ linearIssue: shown[cursor].identifier });
@@ -98,7 +100,7 @@ export function NewTaskSheet({ state, onClose, onCreated, onSettings }) {
           ? html`<div class="seg">${workspaces.map((w) => html`<button key=${w.id} aria-pressed=${w.id === wsId} onClick=${() => setWsId(w.id)}>${w.name}</button>`)}</div>`
           : html`<button class="key" onClick=${onSettings}>Add a workspace first</button>`}
       </div>
-      <input class="field search" autofocus placeholder="Search Linear, or type ENG-123…  (⌘↵ for a plain task with this title)" value=${q} onInput=${(e) => setQ(e.target.value)} />
+      <input ref=${search} class="field search" placeholder="Search Linear, or type ENG-123…  (⌘↵ for a plain task with this title)" value=${q} onInput=${(e) => setQ(e.target.value)} />
       <div class="sheet-body" ref=${list}>
         ${linearError && html`<div class="empty"><div class="signal">${linearError}</div>
           ${/not configured/.test(linearError) && html`<div class="btns"><button class="key" onClick=${onSettings}>Set Linear API key</button></div>`}</div>`}
@@ -131,6 +133,7 @@ export function SettingsSheet({ state, run, upd, onCheckUpdate, onClose }) {
   useEffect(() => {
     get("/api/config").then(setCfg);
   }, []);
+  useEscape(onClose);
   if (!cfg) return null;
   const set = (k, v) => setCfg({ ...cfg, [k]: v });
   const save = async () => {
@@ -149,7 +152,7 @@ export function SettingsSheet({ state, run, upd, onCheckUpdate, onClose }) {
 
   return html`
     <div class="scrim" onClick=${onClose}></div>
-    <div class="sheet" onKeyDown=${(e) => e.key === "Escape" && onClose()}>
+    <div class="sheet">
       <div class="sheet-head"><span class="display">Settings</span><span style="flex:1"></span>
         <button class="key" onClick=${onClose}>Esc</button><button class="key primary" onClick=${save}>Save</button></div>
       <div class="sheet-body"><div class="form">

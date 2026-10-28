@@ -106,16 +106,16 @@ function App() {
 
   return html`
     <div class="frame">
-      <header class="top">
-        <div class="wordmark">layer<b>8</b></div>
-        <div class="grow"></div>
+      <header class="top" data-tauri-drag-region>
+        <div class="wordmark" data-tauri-drag-region><img src="/logo.svg" alt="" class="logo" data-tauri-drag-region /><span data-tauri-drag-region>layer<b>8</b></span></div>
+        <div class="grow" data-tauri-drag-region></div>
         <div title="Agents working / limit">
-          <span class="label">run</span>
+          <span class="label">Agents</span>
           <span class="meter">${Array.from({ length: state.maxRunning }, (_, i) => html`<i class=${i < state.running ? "on" : ""} />`)}</span>
           <span class="dim">${state.running}</span>
           ${state.queued > 0 && html`<span class="faint">+${state.queued} queued</span>`}
         </div>
-        <div><span class="label">approve</span><span class=${waiting ? "signal" : "faint"}>${waiting}</span></div>
+        <div><span class="label">Approvals</span><span class=${waiting ? "chip signal" : "faint"}>${waiting}</span></div>
         <div title=${up ? "Connected" : "Backend not responding"}>
           <span class=${cls("sq", up ? "idle" : "failed")}></span><span class="label">${/^\d/.test(state.version || "") ? "v" + state.version : state.version || "?"}</span>
         </div>

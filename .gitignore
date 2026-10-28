@@ -3,3 +3,6 @@
 /dist/
 *.test
 .DS_Store
+/src-tauri/target/
+/src-tauri/gen/
+/src-tauri/binaries/layer8d-*

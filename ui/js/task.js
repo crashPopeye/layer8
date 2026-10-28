@@ -133,7 +133,7 @@ function StackStrip({ task, slices, state, ctx, onPick }) {
   const busy = (x) => state.sessions.filter((s) => s.sliceId === x.id).slice(-1)[0];
   return html`<div class="stack">
     <button class="slice" aria-selected=${ctx === ""} onClick=${() => onPick("")}>
-      <span class="k">TASK</span><span class="ellipsis dim">research · plan</span>
+      <span class="k">Task</span><span class="ellipsis">Research & plan</span>
       <span class="row2">${task.branch || "folder"}</span>
     </button>
     ${slices.map((x) => {

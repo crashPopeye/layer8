@@ -4,5 +4,5 @@ package ui
 
 import "embed"
 
-//go:embed index.html styles.css js vendor fonts
+//go:embed index.html styles.css logo.svg js vendor fonts
 var FS embed.FS

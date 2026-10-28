@@ -122,9 +122,9 @@ function Line({ e, result }) {
   const t = html`<span class="t">${clock(e.at)}</span>`;
   switch (e.type) {
     case "user":
-      return html`<div class="line user">${t}<span class="g">›</span><div class="body">${e.data.text}</div></div>`;
+      return html`<div class="line user">${t}<span class="g"></span><div class="body">${e.data.text}</div></div>`;
     case "text":
-      return html`<div class=${"line" + sub}>${t}<span class="g">◆</span><div class="body md" dangerouslySetInnerHTML=${{ __html: e.data.html || "" }}></div></div>`;
+      return html`<div class=${"line" + sub}>${t}<span class="g"></span><div class="body md" dangerouslySetInnerHTML=${{ __html: e.data.html || "" }}></div></div>`;
     case "tool_use": {
       const err = result && result.data.isError;
       return html`<div class=${"line" + sub}>${t}<span class="g">${open ? "▾" : "▸"}</span>
@@ -141,7 +141,7 @@ function Line({ e, result }) {
     case "result": {
       const ok = e.data.ok;
       const label = e.data.interrupted ? "stopped" : ok ? "done" : `ended: ${e.data.subtype}`;
-      return html`<div class=${cls("line result", !ok && !e.data.interrupted && "badr")}>${t}<span class="g">${ok ? "■" : "✕"}</span>
+      return html`<div class=${cls("line result", !ok && !e.data.interrupted && "badr")}>${t}<span class="g">${ok ? "✓" : "✕"}</span>
         <div class="body">${label} · ${Math.round((e.data.durationMs || 0) / 1000)}s · ${e.data.turns || 0} turns · session ${usd(e.data.costUsd)}</div></div>`;
     }
     case "error":
