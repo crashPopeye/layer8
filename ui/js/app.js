@@ -107,7 +107,7 @@ function App() {
   return html`
     <div class="frame">
       <header class="top" data-tauri-drag-region>
-        <div class="wordmark" data-tauri-drag-region><img src="/logo.svg" alt="" class="logo" data-tauri-drag-region /><span data-tauri-drag-region>layer<b>8</b></span></div>
+        <div class="wordmark" data-tauri-drag-region><img src="/logo.png" alt="" class="logo" data-tauri-drag-region /><span data-tauri-drag-region>layer<b>8</b></span></div>
         <div class="grow" data-tauri-drag-region></div>
         <div title="Agents working / limit">
           <span class="label">Agents</span>
