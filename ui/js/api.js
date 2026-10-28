@@ -1,12 +1,47 @@
-// JSON API served by the Go app under its own origin, plus Wails events for pushes.
+// Talks to the layer8d daemon over HTTP on 127.0.0.1 with its token.
+// Inside the app, the Tauri shell tells us where it is; in a browser (development,
+// served by the daemon itself) the user pastes the token once.
+
+export const tauri = window.__TAURI__ || null;
+const invoke = (cmd, args) => tauri.core.invoke(cmd, args);
+
+let daemon = null; // { url, token }
+
+function saved() {
+  try {
+    return JSON.parse(localStorage.getItem("layer8.daemon") || "null");
+  } catch {
+    return null;
+  }
+}
+
+/** Resolves once the daemon is known; null means the browser needs a token. */
+export async function connect() {
+  if (tauri) {
+    daemon = await invoke("daemon_info");
+    return daemon;
+  }
+  const s = saved();
+  daemon = s && s.token ? { url: location.origin, token: s.token } : null;
+  return daemon;
+}
+
+export function rememberToken(token) {
+  daemon = { url: location.origin, token };
+  try {
+    localStorage.setItem("layer8.daemon", JSON.stringify({ token }));
+  } catch {
+    /* private mode: ask again next time */
+  }
+}
 
 export async function api(method, path, body) {
-  const init = { method, headers: {} };
+  const init = { method, headers: { Authorization: `Bearer ${daemon.token}` } };
   if (body !== undefined) {
     init.headers["Content-Type"] = "application/json";
     init.body = JSON.stringify(body);
   }
-  const res = await fetch(path, init);
+  const res = await fetch(daemon.url + path, init);
   let data = null;
   try {
     data = await res.json();
@@ -32,23 +67,49 @@ export const withQuery = (path, o) => {
   return s ? `${path}?${s}` : path;
 };
 
-// Wails runtime is only present inside the app window.
-let runtime = null;
-const runtimeReady = import("/wails/runtime.js").then(
-  (m) => (runtime = m),
-  () => null,
-);
+// Server-sent events from the daemon. EventSource reconnects by itself (the daemon
+// restarts after updates); onOpen lets the caller refetch state after a gap.
+const handlers = { "layer8:state": new Set(), "layer8:events": new Set() };
+let source = null;
+let openHandlers = new Set();
 
-export async function on(name, cb) {
-  await runtimeReady;
-  if (!runtime) return () => {};
-  return runtime.Events.On(name, (ev) => cb(ev.data));
+export function on(name, fn) {
+  handlers[name].add(fn);
+  return () => handlers[name].delete(fn);
+}
+export const onOpen = (fn) => {
+  openHandlers.add(fn);
+  return () => openHandlers.delete(fn);
+};
+
+export function startEvents(onStatus) {
+  if (source) return;
+  source = new EventSource(`${daemon.url}/api/events?token=${encodeURIComponent(daemon.token)}`);
+  source.onopen = () => {
+    onStatus(true);
+    openHandlers.forEach((fn) => fn());
+  };
+  source.onerror = () => onStatus(false);
+  for (const name of Object.keys(handlers)) {
+    source.addEventListener(name, (e) => {
+      let data = null;
+      try {
+        data = JSON.parse(e.data);
+      } catch {
+        return;
+      }
+      handlers[name].forEach((fn) => fn(data));
+    });
+  }
 }
 
-// Session events pushed by Go, fanned out to whichever log is open.
-const eventListeners = new Set();
-export const onSessionEvents = (fn) => {
-  eventListeners.add(fn);
-  return () => eventListeners.delete(fn);
+export const onSessionEvents = (fn) => on("layer8:events", (evs) => fn(evs || []));
+
+// Shell-only features (no-ops in a browser).
+export const shell = {
+  available: !!tauri,
+  pickFolder: () => (tauri ? invoke("pick_folder") : Promise.resolve(null)),
+  checkUpdate: () => (tauri ? invoke("check_update") : Promise.resolve(null)),
+  installUpdate: () => (tauri ? invoke("install_update") : Promise.resolve(null)),
+  installCli: () => (tauri ? invoke("install_cli") : Promise.resolve(null)),
 };
-export const dispatchSessionEvents = (evs) => eventListeners.forEach((fn) => fn(evs || []));

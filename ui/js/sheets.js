@@ -1,5 +1,5 @@
 import { html, useState, useEffect, useMemo, useRef } from "/vendor/preact-htm.js";
-import { get, post, put, del, withQuery } from "./api.js";
+import { get, post, put, del, withQuery, shell } from "./api.js";
 import { home } from "./util.js";
 
 const store = {
@@ -123,7 +123,7 @@ const TERMINALS = ["terminal", "iterm", "ghostty", "wezterm", "kitty", "custom"]
 const EDITORS = ["code", "cursor", "zed", "idea", "custom"];
 const SET = "__set__";
 
-export function SettingsSheet({ state, run, onClose }) {
+export function SettingsSheet({ state, run, upd, onCheckUpdate, onClose }) {
   const [cfg, setCfg] = useState(null);
   const [linearKey, setLinearKey] = useState("");
   const [ghToken, setGhToken] = useState("");
@@ -142,11 +142,10 @@ export function SettingsSheet({ state, run, onClose }) {
     if (await run(post("/api/workspaces", { path: p }))) setPath("");
   };
   const pick = async () => {
-    const r = await run(post("/api/pick-folder"));
-    if (r && r.path) addWorkspace(r.path);
+    const p = await shell.pickFolder();
+    if (p) addWorkspace(p);
   };
   const toggle = (k) => html`<div class="seg"><button aria-pressed=${!!cfg[k]} onClick=${() => set(k, true)}>on</button><button aria-pressed=${!cfg[k]} onClick=${() => set(k, false)}>off</button></div>`;
-  const upd = state.update || {};
 
   return html`
     <div class="scrim" onClick=${onClose}></div>
@@ -162,7 +161,7 @@ export function SettingsSheet({ state, run, onClose }) {
             <button class="key small danger" onClick=${() => confirm(`Remove ${w.name} and its tasks from layer8? Files and branches are not touched.`) && run(del(`/api/workspaces/${w.id}`))}>✕</button>
           </div>`)}
           <div style="display:flex;gap:6px">
-            <button class="key" onClick=${pick}>Choose folder…</button>
+            ${shell.available && html`<button class="key" onClick=${pick}>Choose folder…</button>`}
             <input class="field" placeholder="or paste /path/to/folder" value=${path} onInput=${(e) => setPath(e.target.value)} onKeyDown=${(e) => e.key === "Enter" && addWorkspace(path.trim())} />
           </div>
         </div>
@@ -207,9 +206,13 @@ export function SettingsSheet({ state, run, onClose }) {
 
         <span class="label">Updates</span>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-          ${toggle("autoUpdate")}
-          <button class="key" onClick=${() => run(post("/api/update/check"))}>Check now</button>
-          <span class="faint">v${state.version}${upd.latest ? ` · latest ${upd.latest}` : ""}${upd.state === "error" ? " · " + upd.error : ""}</span>
+          ${shell.available ? html`<button class="key" onClick=${onCheckUpdate}>Check now</button>` : ""}
+          <span class="faint">service ${state.version}${upd && upd.current ? ` · app ${upd.current}` : ""}${upd && upd.available ? ` · ${upd.version} available` : upd && upd.checked ? " · up to date" : ""}${upd && upd.error ? " · " + upd.error : ""}</span>
+        </div>
+        <span class="label">Command line</span>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          ${shell.available && html`<button class="key" onClick=${async () => { const r = await run(shell.installCli()); if (r) alert(r); }}>Install the layer8 command</button>`}
+          <span class="faint">Then run <code>layer8 help</code> in a terminal.</span>
         </div>
       </div></div>
     </div>`;

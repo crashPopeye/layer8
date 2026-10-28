@@ -13,7 +13,6 @@ import (
 	"github.com/crashPopeye/layer8/internal/prompts"
 	"github.com/crashPopeye/layer8/internal/sessions"
 	"github.com/crashPopeye/layer8/internal/store"
-	"github.com/crashPopeye/layer8/internal/updater"
 )
 
 // Emitter delivers a named event to the UI (Wails events in the app, a no-op in tests).
@@ -24,7 +23,6 @@ type App struct {
 	Config   *config.Store
 	Store    *store.Store
 	Sessions *sessions.Manager
-	Updater  *updater.Updater
 	Version  string
 
 	bus   *bus
@@ -71,25 +69,16 @@ func New(o Options) (*App, error) {
 	a.ctx, a.cancel = context.WithCancel(context.Background())
 	a.Sessions = sessions.New(st, a.bus, start, func() int { return a.Config.Get().MaxConcurrentSessions }, a.launch)
 	a.Sessions.OnTurnEnd = a.onTurnEnd
-	a.Updater = updater.New(o.Version, func() (string, error) { return a.githubToken() })
 	return a, nil
 }
 
-// Run starts the background loops: GitHub polling, sync with the default branch, update checks.
+// Run starts the background loops: GitHub polling and sync with the default branch.
 func (a *App) Run() {
 	a.loop("github", 90*time.Second, 5*time.Second, func() { a.PollGitHub(a.ctx) })
 	a.loop("sync", time.Minute, 20*time.Second, func() {
 		mins := a.Config.Get().SyncIntervalMinutes
 		if mins > 0 && time.Since(time.Unix(0, a.lastSync.Load())) >= time.Duration(mins)*time.Minute {
 			a.SyncAll(a.ctx)
-		}
-	})
-	a.loop("update", 6*time.Hour, 30*time.Second, func() {
-		if a.Config.Get().AutoUpdate {
-			if _, err := a.Updater.Check(a.ctx); err != nil {
-				log.Printf("update check: %v", err)
-			}
-			a.bus.Changed()
 		}
 	})
 }

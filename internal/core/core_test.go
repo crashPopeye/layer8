@@ -16,6 +16,7 @@ import (
 
 	"github.com/crashPopeye/layer8/internal/claude"
 	"github.com/crashPopeye/layer8/internal/config"
+	"github.com/crashPopeye/layer8/internal/github"
 	"github.com/crashPopeye/layer8/internal/gitx"
 	"github.com/crashPopeye/layer8/internal/sessions"
 	"github.com/crashPopeye/layer8/internal/store"
@@ -475,4 +476,25 @@ func mustLog(t *testing.T, a *App, task store.Task, x store.Slice) []gitx.Commit
 		t.Fatal(err)
 	}
 	return c
+}
+
+func TestRewriteManifest(t *testing.T) {
+	raw := []byte(`{"version":"0.2.0","notes":"n","pub_date":"2026-10-28T00:00:00Z","platforms":{
+	  "darwin-aarch64":{"signature":"SIG","url":"https://github.com/o/r/releases/download/v0.2.0/layer8.app.tar.gz"},
+	  "darwin-x86_64":{"signature":"SIG","url":"https://github.com/o/r/releases/download/v0.2.0/layer8.app.tar.gz"}}}`)
+	out, err := RewriteManifest(raw, "http://127.0.0.1:7878", map[string]github.Asset{"layer8.app.tar.gz": {ID: 42, Name: "layer8.app.tar.gz"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m struct {
+		Version   string
+		Platforms map[string]struct{ URL, Signature string }
+	}
+	json.Unmarshal(out, &m)
+	if m.Version != "0.2.0" || m.Platforms["darwin-aarch64"].URL != "http://127.0.0.1:7878/api/update/asset/42" || m.Platforms["darwin-x86_64"].Signature != "SIG" {
+		t.Fatalf("%s", out)
+	}
+	if _, err := RewriteManifest(raw, "x", map[string]github.Asset{}); err == nil {
+		t.Fatal("missing asset should fail")
+	}
 }

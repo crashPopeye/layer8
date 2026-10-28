@@ -2,11 +2,14 @@
 package config
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 )
 
@@ -33,6 +36,9 @@ const (
 
 // Config is persisted as ~/.layer8/config.json. Secrets live here too, with mode 0600.
 type Config struct {
+	// Port the daemon listens on, on 127.0.0.1 only. Changing it needs a daemon restart.
+	Port int `json:"port"`
+
 	LinearAPIKey string `json:"linearApiKey"`
 	// Empty means: ask the gh CLI (`gh auth token`).
 	GitHubToken string `json:"githubToken"`
@@ -56,13 +62,11 @@ type Config struct {
 	AutoStartSlices       bool `json:"autoStartSlices"`     // start a slice's session when its parent finishes
 	CreateLinearSubIssues bool `json:"createLinearSubIssues"`
 	DraftPRs              bool `json:"draftPRs"`
-
-	AutoUpdate bool `json:"autoUpdate"`
 }
 
 // Paths are derived from the home directory; LAYER8_HOME overrides it (tests, multiple profiles).
 type Paths struct {
-	Home, Config, DB, Tasks, Logs string
+	Home, Config, DB, Tasks, Logs, Token string
 }
 
 func ResolvePaths() (Paths, error) {
@@ -80,6 +84,7 @@ func ResolvePaths() (Paths, error) {
 		DB:     filepath.Join(home, "layer8.db"),
 		Tasks:  filepath.Join(home, "tasks"),
 		Logs:   filepath.Join(home, "logs"),
+		Token:  filepath.Join(home, "token"),
 	}
 	for _, d := range []string{p.Home, p.Tasks, p.Logs} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
@@ -91,6 +96,7 @@ func ResolvePaths() (Paths, error) {
 
 func Defaults(p Paths) Config {
 	return Config{
+		Port:                  7878,
 		Terminal:              TerminalApple,
 		Editor:                EditorCode,
 		UseTmux:               true,
@@ -102,7 +108,6 @@ func Defaults(p Paths) Config {
 		AutoStartSlices:       true,
 		CreateLinearSubIssues: true,
 		DraftPRs:              true,
-		AutoUpdate:            true,
 	}
 }
 
@@ -133,6 +138,9 @@ func Load(p Paths) (*Store, error) {
 
 func normalize(c Config, p Paths) Config {
 	d := Defaults(p)
+	if c.Port <= 0 || c.Port > 65535 {
+		c.Port = d.Port
+	}
 	if c.MaxConcurrentSessions < 1 {
 		c.MaxConcurrentSessions = d.MaxConcurrentSessions
 	}
@@ -182,4 +190,45 @@ func (s *Store) Save(c Config) error {
 	}
 	s.cfg = c
 	return nil
+}
+
+// Token returns the daemon's API token, creating it (mode 0600) on first use.
+// Only processes running as this user can read it.
+func Token(p Paths) (string, error) {
+	if b, err := os.ReadFile(p.Token); err == nil {
+		if tok := strings.TrimSpace(string(b)); len(tok) >= 32 {
+			return tok, nil
+		}
+	}
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	tok := hex.EncodeToString(buf)
+	// Write to a temp file and rename, so a concurrent reader never sees a partial token.
+	tmp, err := os.CreateTemp(p.Home, ".token-*")
+	if err != nil {
+		return "", err
+	}
+	defer os.Remove(tmp.Name())
+	if err := tmp.Chmod(0o600); err != nil {
+		tmp.Close()
+		return "", err
+	}
+	if _, err := tmp.WriteString(tok); err != nil {
+		tmp.Close()
+		return "", err
+	}
+	if err := tmp.Close(); err != nil {
+		return "", err
+	}
+	// Link fails if another process created the token first; then use theirs.
+	if err := os.Link(tmp.Name(), p.Token); err != nil {
+		b, rerr := os.ReadFile(p.Token)
+		if rerr != nil {
+			return "", err
+		}
+		return strings.TrimSpace(string(b)), nil
+	}
+	return tok, nil
 }

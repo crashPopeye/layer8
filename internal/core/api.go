@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -15,14 +16,13 @@ import (
 	"github.com/crashPopeye/layer8/internal/config"
 	"github.com/crashPopeye/layer8/internal/linear"
 	"github.com/crashPopeye/layer8/internal/store"
-	"github.com/crashPopeye/layer8/internal/updater"
 )
 
-// Hooks are provided by the desktop shell.
+// Hooks are provided by the process hosting the API (the daemon).
 type Hooks struct {
-	PickFolder func() (string, error)
-	OpenURL    func(string) error
-	Quit       func()
+	OpenURL func(string) error
+	// Shutdown stops the daemon; launchd starts it again (used to switch to a new version).
+	Shutdown func()
 }
 
 type State struct {
@@ -35,7 +35,6 @@ type State struct {
 	Running    int               `json:"running"`
 	Queued     int               `json:"queued"`
 	MaxRunning int               `json:"maxRunning"`
-	Update     updater.Status    `json:"update"`
 	HasLinear  bool              `json:"hasLinear"`
 }
 
@@ -61,7 +60,6 @@ func (a *App) State() (State, error) {
 	s.Running, s.Queued = a.Sessions.Counts()
 	cfg := a.Config.Get()
 	s.MaxRunning = cfg.MaxConcurrentSessions
-	s.Update = a.Updater.Status()
 	s.HasLinear = cfg.LinearAPIKey != ""
 	return s, nil
 }
@@ -168,12 +166,37 @@ func (a *App) Handler(h Hooks) http.Handler {
 		return nil, nil
 	})
 
-	route("POST /api/pick-folder", func(r *http.Request) (any, error) {
-		if h.PickFolder == nil {
-			return nil, bad("folder picker unavailable")
+	mux.HandleFunc("GET /api/update/manifest", func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), time.Minute)
+		defer cancel()
+		b, err := a.updateManifest(ctx, "http://"+r.Host)
+		if err != nil {
+			// Tauri's updater treats any non-2xx as "check failed"; 204 means "no update".
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadGateway)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
 		}
-		p, err := h.PickFolder()
-		return map[string]string{"path": p}, err
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(b)
+	})
+	mux.HandleFunc("GET /api/update/asset/{id}", a.serveUpdateAsset)
+	route("GET /api/version", func(r *http.Request) (any, error) {
+		return map[string]any{"version": a.Version, "pid": os.Getpid()}, nil
+	})
+	route("POST /api/shutdown", func(r *http.Request) (any, error) {
+		var in struct{ Force bool }
+		if err := readJSON(r, &in); err != nil {
+			return nil, err
+		}
+		if running, queued := a.Sessions.Counts(); running+queued > 0 && !in.Force {
+			return nil, &httpError{http.StatusConflict, "agents are working"}
+		}
+		if h.Shutdown == nil {
+			return nil, bad("shutdown unavailable")
+		}
+		go h.Shutdown()
+		return nil, nil
 	})
 	route("POST /api/workspaces", func(r *http.Request) (any, error) {
 		var in struct{ Path string }
@@ -380,28 +403,6 @@ func (a *App) Handler(h Hooks) http.Handler {
 	})
 	route("POST /api/github/refresh", func(r *http.Request) (any, error) {
 		go a.PollGitHub(a.ctx)
-		return nil, nil
-	})
-	route("POST /api/update/check", func(r *http.Request) (any, error) {
-		st, err := a.Updater.Check(r.Context())
-		a.bus.Changed()
-		return st, err
-	})
-	route("POST /api/update/install", func(r *http.Request) (any, error) {
-		if running, queued := a.Sessions.Counts(); running+queued > 0 {
-			return nil, &httpError{http.StatusConflict, "agents are still working; stop them or wait, then install the update"}
-		}
-		go func() {
-			err := a.Updater.Install(a.ctx, func() {
-				if h.Quit != nil {
-					h.Quit()
-				}
-			})
-			if err != nil {
-				log.Printf("update: %v", err)
-			}
-			a.bus.Changed()
-		}()
 		return nil, nil
 	})
 	return mux

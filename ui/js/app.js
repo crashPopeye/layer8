@@ -1,5 +1,5 @@
 import { html, render, useState, useEffect, useRef, useCallback } from "/vendor/preact-htm.js";
-import { get, post, on, dispatchSessionEvents } from "./api.js";
+import { get, post, on, onOpen, startEvents, shell, connect, rememberToken } from "./api.js";
 import { useKeys, home, cls } from "./util.js";
 import { TaskView } from "./task.js";
 import { NewTaskSheet, SettingsSheet } from "./sheets.js";
@@ -31,18 +31,35 @@ function useAppState() {
   }, []);
   useEffect(() => {
     refresh();
-    const offs = [
-      on("layer8:state", refresh),
-      on("layer8:events", dispatchSessionEvents),
-    ];
-    // Safety net: events emitted while the page was loading are not replayed.
+    const offs = [on("layer8:state", refresh), onOpen(refresh)];
+    startEvents(setUp);
+    // Safety net for anything missed while the stream was down.
     const t = setInterval(refresh, 15000);
     return () => {
       clearInterval(t);
-      offs.forEach((p) => p.then((off) => off()));
+      offs.forEach((off) => off());
     };
   }, [refresh]);
   return { state, up, refresh };
+}
+
+/** Updates come from the Tauri shell (signed, verified by Tauri's updater). */
+function useUpdate() {
+  const [upd, setUpd] = useState(null);
+  const check = useCallback(async () => {
+    try {
+      setUpd(await shell.checkUpdate());
+    } catch (e) {
+      setUpd({ error: String(e) });
+    }
+  }, []);
+  useEffect(() => {
+    if (!shell.available) return;
+    check();
+    const t = setInterval(check, 6 * 3600 * 1000);
+    return () => clearInterval(t);
+  }, [check]);
+  return [upd, check, setUpd];
 }
 
 // External links open in the browser through Go (http/https only).
@@ -60,6 +77,8 @@ document.addEventListener("click", (e) => {
 
 function App() {
   const { state, up, refresh } = useAppState();
+  const [upd, checkUpdate, setUpd] = useUpdate();
+  const [installing, setInstalling] = useState(false);
   const [taskId, setTaskId] = useState(null);
   const [sheet, setSheet] = useState(null);
   const [error, setError] = useState(null);
@@ -84,7 +103,6 @@ function App() {
 
   const task = state.tasks.find((t) => t.id === taskId) || null;
   const waiting = state.approvals.length;
-  const upd = state.update || {};
 
   return html`
     <div class="frame">
@@ -109,17 +127,22 @@ function App() {
       </nav>
 
       <main class="main">
-        ${upd.available &&
+        ${upd && upd.available &&
         html`<div class="banner">
-          <span>layer8 <b>${upd.latest}</b> is available (you have ${state.version}).</span>
-          ${upd.state === "downloading" || upd.state === "installing"
-            ? html`<span class="dim">${upd.state}…</span>`
-            : upd.canInstall
-            ? html`<button class="key small primary" onClick=${() => run(post("/api/update/install"))}>Install and restart</button>`
-            : html`<span class="faint">${upd.installHint}</span>`}
-          ${upd.state === "error" && html`<span class="bad">${upd.error}</span>`}
-          <span style="flex:1"></span>
-          <a href=${upd.url}>release notes</a>
+          <span>layer8 <b>${upd.version}</b> is available.</span>
+          ${installing
+            ? html`<span class="dim">Downloading and installing… layer8 restarts by itself.</span>`
+            : html`<button class="key small primary" onClick=${async () => {
+                if (state.running + state.queued > 0 && !confirm("Agents are working. The window restarts, but agents keep running in the background service, which switches to the new version once they finish. Install now?")) return;
+                setInstalling(true);
+                try {
+                  await shell.installUpdate();
+                } catch (e) {
+                  setInstalling(false);
+                  setUpd({ ...upd, error: String(e) });
+                }
+              }}>Install and restart</button>`}
+          ${upd.error && html`<span class="bad">${upd.error}</span>`}
         </div>`}
         ${task
           ? html`<${TaskView} key=${task.id} state=${state} task=${task} run=${run} keysEnabled=${sheet === null} />`
@@ -151,7 +174,7 @@ function App() {
           setTaskId(t.id);
         }}
       />`}
-      ${sheet === "settings" && html`<${SettingsSheet} state=${state} run=${run} onClose=${() => setSheet(null)} />`}
+      ${sheet === "settings" && html`<${SettingsSheet} state=${state} run=${run} upd=${upd} onCheckUpdate=${checkUpdate} onClose=${() => setSheet(null)} />`}
       ${error && html`<div class="toast" onClick=${() => setError(null)}><div class="label bad">error</div>${error}</div>`}
     </div>
   `;
@@ -189,4 +212,27 @@ function Rail({ state, selected, onSelect, onNew, onSettings }) {
   });
 }
 
-render(html`<${App} />`, document.getElementById("root"));
+function Connect({ onDone }) {
+  const [token, setToken] = useState("");
+  return html`<div class="empty" style="max-width:520px;margin:80px auto">
+    <div class="display" style="font-size:28px">layer<span class="signal">8</span></div>
+    <p>Paste the daemon token from <code>~/.layer8/token</code> (browser development mode).</p>
+    <input class="field" autofocus value=${token} onInput=${(e) => setToken(e.target.value.trim())} />
+    <div class="btns"><button class="key primary" disabled=${!token} onClick=${() => { rememberToken(token); onDone(); }}>Connect</button></div>
+  </div>`;
+}
+
+function Root() {
+  const [ready, setReady] = useState(null); // null = connecting, false = needs token, true = ok
+  const [error, setError] = useState(null);
+  useEffect(() => {
+    connect().then((d) => setReady(!!d), (e) => setError(String(e)));
+  }, []);
+  if (error) return html`<div class="empty"><div class="display">layer8 can't start its service</div><pre class="selectable bad">${error}</pre>
+    <p>Details are in <code>~/.layer8/logs/layer8d.log</code>.</p></div>`;
+  if (ready === null) return html`<div class="empty">Starting…</div>`;
+  if (!ready) return html`<${Connect} onDone=${() => setReady(true)} />`;
+  return html`<${App} />`;
+}
+
+render(html`<${Root} />`, document.getElementById("root"));
