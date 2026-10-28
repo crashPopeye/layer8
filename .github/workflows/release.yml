@@ -96,6 +96,7 @@ jobs:
           prerelease=""
           case "$VERSION" in *-*) prerelease="--prerelease";; esac
           gh release create "$TAG" \
+            "build/out/layer8-$VERSION-macos-universal.dmg" \
             "build/out/layer8-$VERSION-macos-universal.zip" \
             "build/out/layer8-$VERSION-macos-universal.app.tar.gz" \
             build/out/latest.json \

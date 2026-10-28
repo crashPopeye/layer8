@@ -50,7 +50,7 @@ make app        # a local layer8.app (macOS)
 make release VERSION=0.2.0        # or Actions → Release → Run workflow
 ```
 
-GitHub Actions tests the code, builds the universal app, signs the update, and publishes a GitHub release. The release contains the install zip, the signed update (`.app.tar.gz`), `latest.json` and `checksums.txt`. Installed apps pick it up within a few hours.
+GitHub Actions tests the code, builds the universal app, signs the update, and publishes a GitHub release. The release contains the disk image (`.dmg`), the same app as a `.zip`, the signed update (`.app.tar.gz`), `latest.json` and `checksums.txt`. Installed apps pick it up within a few hours.
 
 ### Repository secrets
 

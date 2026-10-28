@@ -4,6 +4,9 @@
 #
 #   build/build-macos.sh 0.2.0
 #
+# Output in build/out/: layer8-<v>-macos-universal.dmg (drag to Applications),
+# .zip (same app, for scripted installs), .app.tar.gz + latest.json (updates).
+#
 # Environment:
 #   TAURI_SIGNING_PRIVATE_KEY   signs the update (required unless LAYER8_NO_UPDATER=1)
 #   LAYER8_NO_UPDATER=1         build without update artifacts (CI checks, local builds)
@@ -60,6 +63,12 @@ lipo -info "$APP/Contents/MacOS/layer8" "$APP/Contents/MacOS/layer8d"
 ZIP="layer8-$VERSION-macos-universal.zip"
 ditto -c -k --sequesterRsrc --keepParent "$APP" "$OUT/$ZIP"
 
+# The drag-to-Applications disk image Tauri built next to the app.
+DMG_SRC=( src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg )
+[[ -f "${DMG_SRC[0]}" ]] || { echo "no .dmg was built" >&2; exit 1; }
+cp "${DMG_SRC[0]}" "$OUT/layer8-$VERSION-macos-universal.dmg"
+hdiutil verify "$OUT/layer8-$VERSION-macos-universal.dmg"
+
 if [[ "${LAYER8_NO_UPDATER:-}" != "1" ]]; then
   TARBALL="layer8-$VERSION-macos-universal.app.tar.gz"
   cp "$BUNDLE/layer8.app.tar.gz" "$OUT/$TARBALL"
@@ -81,6 +90,6 @@ PY
   cat "$OUT/latest.json"
 fi
 
-(cd "$OUT" && rm -f layer8d-arm64 layer8d-amd64 && shasum -a 256 *.zip *.tar.gz 2>/dev/null > checksums.txt || true)
+(cd "$OUT" && rm -f layer8d-arm64 layer8d-amd64 && shasum -a 256 *.dmg *.zip *.tar.gz 2>/dev/null > checksums.txt || true)
 cat "$OUT/checksums.txt"
 echo "==> built in $OUT"

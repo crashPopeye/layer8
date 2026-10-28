@@ -23,7 +23,13 @@ layer8 uses this login to download itself and its updates (the repository is pri
 
 ## 2. Install the app
 
-Copy and paste these three lines into Terminal:
+**With the disk image:** download `layer8-<version>-macos-universal.dmg` from the [latest release](https://github.com/crashPopeye/layer8/releases/latest), open it and drag **layer8** onto **Applications**. Because the app isn't notarized by Apple yet, macOS blocks the first launch. Run this once, then open layer8 again:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/layer8.app
+```
+
+**Or from Terminal:** these three lines download and install it without the quarantine step:
 
 ```sh
 gh release download --repo crashPopeye/layer8 --pattern 'layer8-*-macos-universal.zip' --dir /tmp/layer8 --clobber
@@ -32,11 +38,6 @@ open /Applications/layer8.app
 ```
 
 That's it: layer8 opens.
-
-> **If you downloaded the zip from the GitHub website instead,** macOS will say it "cannot verify" layer8, because the app isn't notarized by Apple yet. Run this once and open it again:
-> ```sh
-> xattr -dr com.apple.quarantine /Applications/layer8.app
-> ```
 
 The first time it opens, macOS shows a **"Background Items Added"** notice for layer8. That's expected: layer8 runs a small background service, so your agents keep working after you close the window or quit the app. You can see it in **System Settings → General → Login Items & Extensions**.
 
