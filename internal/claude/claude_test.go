@@ -59,7 +59,7 @@ func TestProtocolAgainstFakeCLI(t *testing.T) {
 	t.Setenv("LAYER8_FAKE_CLAUDE", "1")
 	t.Setenv("LAYER8_FAKE_LOG", logPath)
 	msgs := make(chan Message, 10)
-	p, err := Start(Options{Binary: exe, Cwd: t.TempDir(), Resume: "old", AddDirs: []string{"/art"}, AppendSystemPrompt: "CTX"}, Handlers{
+	p, err := Start(Options{Binary: exe, Cwd: t.TempDir(), Resume: "old", PermissionMode: "default", AddDirs: []string{"/art"}, AppendSystemPrompt: "CTX"}, Handlers{
 		OnMessage: func(m Message) { msgs <- m },
 		OnPermission: func(req PermissionRequest, respond func(Decision)) {
 			if req.ToolName != "Bash" || req.Input["command"] != "echo hi" || req.ToolUseID != "tu-1" {
@@ -166,7 +166,7 @@ func (f writerFunc) Close() error                { return nil }
 
 func TestArgsWithModel(t *testing.T) {
 	a := strings.Join(Args(Options{Model: "opus"}), " ")
-	if !strings.Contains(a, "--model=opus") || strings.Contains(a, "--resume") {
+	if !strings.Contains(a, "--model=opus") || strings.Contains(a, "--resume") || strings.Contains(a, "--permission-mode") {
 		t.Fatal(a)
 	}
 }

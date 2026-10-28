@@ -187,6 +187,10 @@ export function SettingsSheet({ state, run, onClose }) {
         <div class="seg">${EDITORS.map((t) => html`<button key=${t} aria-pressed=${cfg.editor === t} onClick=${() => set("editor", t)}>${t}</button>`)}</div>
         ${cfg.editor === "custom" && html`<span></span><input class="field" placeholder="open -a MacVim {path}" value=${cfg.editorCommand} onInput=${(e) => set("editorCommand", e.target.value)} />`}
 
+        <span class="label">Permissions</span>
+        <div class="seg">${[["acceptEdits", "accept edits"], ["default", "ask for everything"], ["settings", "my Claude settings"]].map(([v, l]) => html`<button key=${v} aria-pressed=${cfg.permissionMode === v} onClick=${() => set("permissionMode", v)}>${l}</button>`)}</div>
+        <span class="hint">Accept edits: agents edit files in their worktree freely and ask before running commands not allowed by your Claude Code rules.</span>
+
         <span class="label">Parallel agents</span>
         <input class="field" type="number" min="1" max="32" style="width:90px" value=${cfg.maxConcurrentSessions} onInput=${(e) => set("maxConcurrentSessions", Math.max(1, Number(e.target.value) || 1))} />
         <span class="label">Model</span>

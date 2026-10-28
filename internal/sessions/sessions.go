@@ -44,6 +44,7 @@ type Launch struct {
 	AddDirs            []string
 	AppendSystemPrompt string
 	Model              string
+	PermissionMode     string
 }
 
 type live struct {
@@ -219,7 +220,7 @@ func (m *Manager) startTurn(sessionID, prompt string, l *live) {
 		}
 		proc, err = m.start(claude.Options{
 			Cwd: ln.Cwd, Resume: s.ClaudeSessionID, AddDirs: ln.AddDirs,
-			AppendSystemPrompt: ln.AppendSystemPrompt, Model: ln.Model,
+			AppendSystemPrompt: ln.AppendSystemPrompt, Model: ln.Model, PermissionMode: ln.PermissionMode,
 		}, m.handlers(sessionID, l))
 		if err != nil {
 			fail(err)

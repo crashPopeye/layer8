@@ -3,7 +3,7 @@
 .PHONY: test dev app release
 
 test:
-	go vet ./... && go test -race ./...
+	go vet ./internal/... ./cmd/... && go test -race ./internal/... ./cmd/...
 
 # The UI and API in your browser at http://127.0.0.1:7999 (no desktop shell).
 dev:

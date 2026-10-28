@@ -159,7 +159,16 @@ func (a *App) launch(s store.Session) (sessions.Launch, error) {
 		AddDirs:            []string{t.ArtifactsPath},
 		AppendSystemPrompt: prompts.Context(v),
 		Model:              a.Config.Get().Model,
+		PermissionMode:     permissionFlag(a.Config.Get().PermissionMode),
 	}, nil
+}
+
+// permissionFlag maps the setting to the CLI flag; "settings" passes none.
+func permissionFlag(mode string) string {
+	if mode == "settings" {
+		return ""
+	}
+	return mode
 }
 
 // ---- UI event bus

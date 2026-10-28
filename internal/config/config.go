@@ -47,6 +47,9 @@ type Config struct {
 	WorktreeRoot          string `json:"worktreeRoot"`
 	// Claude model alias or ID passed as --model; empty uses Claude Code's default.
 	Model string `json:"model"`
+	// PermissionMode for agents: "acceptEdits" (file edits go through, commands ask),
+	// "default" (ask for everything) or "settings" (use the user's Claude Code settings).
+	PermissionMode string `json:"permissionMode"`
 
 	SyncIntervalMinutes   int  `json:"syncIntervalMinutes"` // 0 disables background sync
 	PushAfterSync         bool `json:"pushAfterSync"`       // force-with-lease branches that already have an upstream
@@ -93,6 +96,7 @@ func Defaults(p Paths) Config {
 		UseTmux:               true,
 		MaxConcurrentSessions: 6,
 		WorktreeRoot:          filepath.Join(p.Home, "worktrees"),
+		PermissionMode:        "acceptEdits",
 		SyncIntervalMinutes:   10,
 		PushAfterSync:         true,
 		AutoStartSlices:       true,
@@ -143,6 +147,11 @@ func normalize(c Config, p Paths) Config {
 	}
 	if c.Editor == "" {
 		c.Editor = d.Editor
+	}
+	switch c.PermissionMode {
+	case "acceptEdits", "default", "settings":
+	default:
+		c.PermissionMode = d.PermissionMode
 	}
 	if c.SyncIntervalMinutes < 0 {
 		c.SyncIntervalMinutes = 0

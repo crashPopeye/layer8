@@ -141,7 +141,8 @@ func (a *App) DeleteComment(id string) error {
 	return err
 }
 
-// SendComments delivers the open comments of a task (or one slice) to a session:
+// SendComments delivers the open doc comments of a task, plus the diff comments of
+// the given slice (or of the task branch when sliceID is ""), to a session:
 // the given one, else the latest idle session in that place, else a new one.
 func (a *App) SendComments(ctx context.Context, taskID, sliceID, sessionID string) (store.Session, error) {
 	all, err := a.Store.Comments(taskID)
@@ -150,7 +151,8 @@ func (a *App) SendComments(ctx context.Context, taskID, sliceID, sessionID strin
 	}
 	var open []store.Comment
 	for _, c := range all {
-		if c.Status == "open" && (sliceID == "" || c.SliceID == sliceID) {
+		// Doc comments go with any session of the task; diff comments only to their own PR.
+		if c.Status == "open" && (c.Target == "artifact" || c.SliceID == sliceID) {
 			open = append(open, c)
 		}
 	}

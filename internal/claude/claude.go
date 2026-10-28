@@ -35,6 +35,7 @@ type Options struct {
 	AddDirs            []string
 	AppendSystemPrompt string
 	Model              string
+	PermissionMode     string   // "" leaves it to the user's Claude Code settings
 	Env                []string // extra KEY=VALUE pairs
 }
 
@@ -200,7 +201,10 @@ func Args(o Options) []string {
 		args = append(args, "--model="+o.Model)
 	}
 	// The user's own settings, CLAUDE.md, skills and permission rules apply.
-	args = append(args, "--setting-sources=user,project,local", "--permission-mode=default")
+	args = append(args, "--setting-sources=user,project,local")
+	if o.PermissionMode != "" {
+		args = append(args, "--permission-mode="+o.PermissionMode)
+	}
 	for _, d := range o.AddDirs {
 		args = append(args, "--add-dir="+d)
 	}
