@@ -9,26 +9,34 @@
 @font-face { font-family: "Archivo"; src: url("/fonts/archivo-latin-wdth-normal.woff2") format("woff2"); font-weight: 100 900; font-stretch: 62% 125%; font-display: block; }
 
 :root {
-  --bg: #0e0d0b;
-  --panel: #151411;
-  --raise: #1c1b17;
-  --rule: #2a2823;
-  --rule-hi: #3b3832;
-  --ink: #ebe5d6;
-  --ink-2: #a49e90;
-  --ink-3: #6b665c;
-  --signal: #ff5a1f;
-  --signal-ink: #0e0d0b;
-  --signal-wash: rgba(255, 90, 31, 0.1);
-  --ok: #a8d672;
-  --wait: #f2c230;
-  --bad: #ff4b3e;
-  --idle: #6b665c;
-  --link: #7cc4ff;
-  --add: rgba(168, 214, 114, 0.12);
-  --add-ink: #a8d672;
-  --del: rgba(255, 75, 62, 0.12);
-  --del-ink: #ff7b70;
+  /* Palette: plum #780042, cream #eee1d0, pink #ff8fd2. */
+  --plum: #780042;
+  --cream: #eee1d0;
+  --pink: #ff8fd2;
+
+  --bg: #140009;
+  --panel: #1c0a13;
+  --raise: #2a1220;
+  --rule: #3a1a2b;
+  --rule-hi: #58293f;
+  --ink: var(--cream);
+  --ink-2: #c4afa2;
+  --ink-3: #8f6f7c;
+  --signal: var(--pink);
+  --signal-ink: #2a0016;
+  --signal-wash: rgba(255, 143, 210, 0.1);
+  --top: var(--plum);
+  --top-ink: var(--cream);
+  --top-rule: rgba(238, 225, 208, 0.18);
+  --ok: #a3d98c;
+  --wait: #f2c94c;
+  --bad: #ff6464;
+  --idle: #8f6f7c;
+  --link: #ffb8e1;
+  --add: rgba(163, 217, 140, 0.12);
+  --add-ink: #a3d98c;
+  --del: rgba(255, 100, 100, 0.12);
+  --del-ink: #ff8a8a;
   --mono: "Plex Mono", ui-monospace, Menlo, monospace;
   --display: "Archivo", "Helvetica Neue", sans-serif;
   --fs: 12.5px;
@@ -36,26 +44,26 @@
 
 @media (prefers-color-scheme: light) {
   :root {
-    --bg: #efebe2;
-    --panel: #e7e2d7;
-    --raise: #ddd7ca;
-    --rule: #cbc4b4;
-    --rule-hi: #b3ab99;
-    --ink: #17150f;
-    --ink-2: #514c41;
-    --ink-3: #847d6e;
-    --signal: #e0440c;
-    --signal-ink: #fff8f0;
-    --signal-wash: rgba(224, 68, 12, 0.09);
-    --ok: #3f7d12;
-    --wait: #a67a00;
-    --bad: #c7261b;
-    --idle: #9a9384;
-    --link: #0b5fa5;
-    --add: rgba(63, 125, 18, 0.12);
-    --add-ink: #2f6a08;
-    --del: rgba(199, 38, 27, 0.1);
-    --del-ink: #a8231a;
+    --bg: var(--cream);
+    --panel: #e7d8c4;
+    --raise: #dccab4;
+    --rule: #cdb7a0;
+    --rule-hi: #b49a82;
+    --ink: #2a0016;
+    --ink-2: #5e3a4b;
+    --ink-3: #8a6b75;
+    --signal: var(--plum);
+    --signal-ink: var(--cream);
+    --signal-wash: rgba(120, 0, 66, 0.08);
+    --ok: #3d7a12;
+    --wait: #9a6f00;
+    --bad: #c4231b;
+    --idle: #9c8187;
+    --link: var(--plum);
+    --add: rgba(61, 122, 18, 0.12);
+    --add-ink: #2e6608;
+    --del: rgba(196, 35, 27, 0.1);
+    --del-ink: #a51f18;
   }
 }
 
@@ -71,7 +79,7 @@ body {
   -webkit-user-select: none;
   cursor: default;
 }
-::selection { background: var(--signal); color: var(--signal-ink); }
+::selection { background: var(--pink); color: #2a0016; }
 button, input, textarea, select { font: inherit; color: inherit; }
 a { color: var(--link); text-decoration: none; cursor: pointer; }
 a:hover { text-decoration: underline; }
@@ -94,15 +102,21 @@ a:hover { text-decoration: underline; }
   display: flex;
   align-items: stretch;
   border-bottom: 1px solid var(--rule);
-  background: var(--panel);
+  background: var(--top);
+  color: var(--top-ink);
   padding-left: 82px; /* traffic lights */
   --wails-draggable: drag;
 }
-.top > * { display: flex; align-items: center; gap: 8px; padding: 0 12px; border-left: 1px solid var(--rule); }
+.top > * { display: flex; align-items: center; gap: 8px; padding: 0 12px; border-left: 1px solid var(--top-rule); }
+.top .label, .top .faint, .top .dim { color: rgba(238, 225, 208, 0.7); }
+.top .signal { color: var(--pink); }
+.top .meter i { background: rgba(238, 225, 208, 0.22); }
+.top .key.primary { background: var(--pink); border-color: var(--pink); color: #2a0016; }
+.top .key.primary kbd { color: #2a0016; }
 .top .grow { flex: 1; border-left: none; }
 .top button, .top a { --wails-draggable: no-drag; }
 .wordmark { font-family: var(--display); font-stretch: 125%; font-weight: 800; font-size: 13px; letter-spacing: 0.18em; text-transform: uppercase; }
-.wordmark b { color: var(--signal); font-weight: 800; }
+.wordmark b { color: var(--pink); font-weight: 800; }
 .rail { grid-area: rail; border-right: 1px solid var(--rule); overflow: auto; background: var(--panel); }
 .main { grid-area: main; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .side { border-left: 1px solid var(--rule); overflow: auto; background: var(--panel); min-height: 0; }
