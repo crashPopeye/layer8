@@ -1,7 +1,7 @@
 import { html, useState, useEffect, useCallback } from "/vendor/preact-htm.js";
 import { get, post, withQuery } from "./api.js";
 import { cls, day } from "./util.js";
-import { LineComments } from "./comments.js";
+import { LineComments, Commentable } from "./comments.js";
 
 export function ChangesPane({ task, slice, state, run }) {
   const [sha, setSha] = useState("");
@@ -34,6 +34,8 @@ export function ChangesPane({ task, slice, state, run }) {
   }, [load, sessionsKey]);
   useEffect(() => {
     loadComments();
+    window.addEventListener("layer8:comments", loadComments);
+    return () => window.removeEventListener("layer8:comments", loadComments);
   }, [loadComments, state.sessions.length]);
 
   const runC = async (p) => {
@@ -79,16 +81,26 @@ export function ChangesPane({ task, slice, state, run }) {
     <div class="content">
       ${sha && data.commit && html`<div class="hunk-head selectable" style="padding:10px 14px"><b>${data.commit.subject}</b>${data.commit.body ? "\n\n" + data.commit.body : ""}<div class="faint">${data.commit.author} · ${data.commit.sha}</div></div>`}
       ${!data.files.length && html`<div class="empty">No changes${sha ? " in this commit" : " on this branch yet"}.</div>`}
-      ${data.files.map((f) => html`<${FileDiff} key=${f.newPath + f.oldPath + sha} file=${f} comments=${comments} base=${{ taskId: task.id, sliceId, target: "diff" }} run=${runC} />`)}
+      <${Commentable} base=${{ taskId: task.id, sliceId, target: "diff" }} locate=${locateDiff} run=${runC}>
+        ${data.files.map((f) => html`<${FileDiff} key=${f.newPath + f.oldPath + sha} file=${f} comments=${comments} base=${{ taskId: task.id, sliceId, target: "diff" }} run=${runC} />`)}
+      </${Commentable}>
     </div>
   </div>`;
+}
+
+function locateDiff(range) {
+  const node = range.startContainer.nodeType === 1 ? range.startContainer : range.startContainer.parentElement;
+  const file = node.closest("[data-path]");
+  if (!file) return null;
+  const at = node.closest("[data-line]");
+  return { path: file.dataset.path, line: at ? +at.dataset.line : 0 };
 }
 
 function FileDiff({ file, comments, base, run }) {
   const [editing, setEditing] = useState(null); // line key "new:12" / "old:7"
   const path = file.status === "deleted" ? file.oldPath : file.newPath;
   const mine = comments.filter((c) => c.path === path);
-  return html`<div class="file" id=${"f-" + path}>
+  return html`<div class="file" id=${"f-" + path} data-path=${path}>
     <div class="file-head"><span class="path selectable">${file.status === "renamed" ? `${file.oldPath} → ${file.newPath}` : path}</span>
       <span class="chip">${file.status}</span><span class="okc">+${file.adds}</span><span class="bad">-${file.dels}</span></div>
     ${file.binary && html`<div class="hunk-head">Binary file</div>`}
@@ -99,7 +111,7 @@ function FileDiff({ file, comments, base, run }) {
         const line = l.kind === "del" ? l.old : l.new;
         const key = `${l.kind === "del" ? "old" : "new"}:${line}`;
         const here = mine.filter((c) => c.line === line && (l.kind === "del") === c.quote.startsWith("-"));
-        return html`<div key=${li}>
+        return html`<div key=${li} data-line=${line}>
           <div class=${cls("dl", l.kind, here.length && "commented")}>
             <span class="n" title="Comment on this line" onClick=${() => setEditing(key)}>${l.old || ""}</span>
             <span class="n" title="Comment on this line" onClick=${() => setEditing(key)}>${l.new || ""}</span>

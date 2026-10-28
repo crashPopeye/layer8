@@ -96,6 +96,7 @@ func (s *Server) Handler() http.Handler {
 			return
 		}
 		if !strings.HasPrefix(r.URL.Path, "/api/") {
+			w.Header().Set("Cache-Control", "no-cache")
 			static.ServeHTTP(w, r)
 			return
 		}

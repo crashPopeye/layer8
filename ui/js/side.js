@@ -1,5 +1,5 @@
 import { html, useState, useEffect } from "/vendor/preact-htm.js";
-import { get, post } from "./api.js";
+import { get, post, del } from "./api.js";
 import { home, usd, statusLabel } from "./util.js";
 
 export function Side({ state, task, slice, session, run, onSession }) {
@@ -10,7 +10,11 @@ export function Side({ state, task, slice, session, run, onSession }) {
   useEffect(() => {
     load();
     const t = setInterval(load, 4000);
-    return () => clearInterval(t);
+    window.addEventListener("layer8:comments", load);
+    return () => {
+      clearInterval(t);
+      window.removeEventListener("layer8:comments", load);
+    };
   }, [task.id]);
   const open = comments.filter((c) => c.status === "open" && (c.target === "artifact" || c.sliceId === sliceId));
   const archive = () => {
@@ -21,9 +25,13 @@ export function Side({ state, task, slice, session, run, onSession }) {
   return html`
     <div class="block">
       <div class="label"><span>Comments for the agent</span><span>${open.length}</span></div>
-      ${!open.length && html`<div class="faint">Click a line number in Changes or Docs to leave a comment. Comments are sent together, in one message.</div>`}
-      ${open.slice(0, 8).map((c) => html`<div class="q" key=${c.id}><div class="faint">${c.path}:${c.line}</div><div class="ellipsis">${c.body}</div></div>`)}
-      ${open.length > 8 && html`<div class="faint">and ${open.length - 8} more</div>`}
+      ${!open.length && html`<div class="faint">Select text in Docs or Changes and press <kbd>C</kbd> to comment. Comments stack here and go to the agent together, in one message.</div>`}
+      ${open.map((c) => html`<div class="q" key=${c.id}>
+        <div class="faint ellipsis">${c.path}${c.line ? ":" + c.line : ""}</div>
+        ${c.quote && html`<div class="quote ellipsis">${c.quote.replace(/^[+ -]/, "")}</div>`}
+        <div class="body">${c.body}</div>
+        <button class="x" title="Delete comment" onClick=${async () => { await run(del(`/api/comments/${c.id}`)); load(); }}>✕</button>
+      </div>`)}
       ${open.length > 0 && html`<div class="btns">
         <button class="key primary" onClick=${async () => {
           const s = await run(post("/api/comments/send", { taskId: task.id, sliceId, sessionId: session && !["queued", "running", "waiting_approval"].includes(session.status) ? session.id : "" }));

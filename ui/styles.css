@@ -218,19 +218,17 @@ textarea.field { height: auto; padding: 9px 11px; resize: vertical; min-height: 
 .empty .display { color: var(--ink); font-size: 20px; margin-bottom: 8px; }
 
 /* task head */
-.task-head { padding: 20px 28px 14px; }
 .task-head .display { font-size: 13px; font-weight: 600; display: flex; align-items: baseline; gap: 8px; letter-spacing: 0; }
-.task-head .display .signal { font-family: var(--mono); font-size: 12px; padding: 2px 8px; border-radius: 99px; background: var(--accent-soft); }
-.task-head .display .dim { font-size: 13px !important; font-family: var(--mono); }
-.task-head h1 { font-size: 21px; font-weight: 620; letter-spacing: -0.02em; line-height: 1.25; margin: 10px 0 10px; }
-.meta { display: flex; flex-wrap: wrap; gap: 4px 18px; font-size: 12px; color: var(--ink-2); }
-.meta > span { display: inline-flex; gap: 6px; min-width: 0; align-items: baseline; }
-.meta .selectable, .meta > span > span:last-child { font-family: var(--mono); font-size: 11.5px; }
-.actions { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 28px 14px; align-items: center; border-bottom: 1px solid var(--line); }
-.actions .sep { width: 1px; height: 16px; background: var(--line-2); margin: 0 6px; }
+.task-head .display .signal { font-family: var(--mono); font-size: 11.5px; padding: 2px 8px; border-radius: 99px; background: var(--accent-soft); }
+.task-head .display .dim { font: 12px var(--mono); }
+.task-head h1 { font-size: 15px; font-weight: 620; letter-spacing: -0.01em; line-height: 1.3; margin: 8px 0 10px; }
+.tabs .grow { flex: 1; }
+.tool { align-self: center; height: 26px; min-width: 30px; padding: 0 8px; border: 1px solid var(--line); border-radius: var(--r-sm); background: transparent; color: var(--ink-2); font: 550 11.5px var(--mono); cursor: pointer; white-space: nowrap; }
+.tool:hover { background: var(--raise); color: var(--ink); }
+.tool + .tool { margin-left: 4px; }
 
 /* stack strip */
-.stack { display: flex; gap: 8px; padding: 12px 28px; overflow-x: auto; flex: none; border-bottom: 1px solid var(--line); }
+.stack { display: flex; gap: 8px; padding: 8px 24px; overflow-x: auto; flex: none; border-bottom: 1px solid var(--line); }
 .slice {
   display: grid; grid-template-columns: auto 1fr; gap: 3px 8px; min-width: 168px; max-width: 250px;
   padding: 9px 12px; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface);
@@ -433,3 +431,17 @@ textarea.field { height: auto; padding: 9px 11px; resize: vertical; min-height: 
 .foot kbd { background: none; border: none; padding: 0; color: var(--ink-2); font-size: 11px; }
 .wordmark { gap: 8px; }
 .wordmark .logo { width: 22px; height: auto; image-rendering: pixelated; }
+
+/* selection comments */
+.commentable { outline: none; caret-color: var(--accent); }
+.commentable ::selection { background: var(--accent-soft); }
+.src-lines { padding: 10px 0 30px; }
+.src .n, .dl .n, .dl .s { user-select: none; -webkit-user-select: none; }
+.sel-pop { position: fixed; z-index: 20; }
+.sel-pop .cmt { width: 330px; margin: 0; box-shadow: var(--shadow); }
+.quote { margin-bottom: 6px; padding-left: 8px; border-left: 2px solid var(--accent-line); font: 11.5px var(--mono); color: var(--ink-3); }
+.q { position: relative; }
+.q .quote { margin: 2px 0 4px; }
+.q .body { white-space: pre-wrap; padding-right: 14px; }
+.q .x { position: absolute; top: 5px; right: 5px; }
+.hint-sel { align-self: center; margin-left: auto; font-size: 11.5px; }
