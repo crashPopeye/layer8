@@ -184,10 +184,6 @@ kbd {
 .tab .icon { opacity: 0.8; }
 .tabs .tool { display: inline-flex; align-items: center; justify-content: center; margin-left: 0; padding: 0 7px; }
 .tabs .tool + .tool { margin-left: 4px; }
-.searchbar { display: inline-flex; align-items: center; gap: 8px; width: min(360px, 40vw); height: 30px; padding: 0 6px 0 10px; border: 1px solid var(--line-2); border-radius: var(--r); background: var(--raise); color: var(--ink-3); font-size: 12.5px; cursor: pointer; transition: border-color 0.15s var(--ease), color 0.15s var(--ease); }
-.searchbar:hover { border-color: var(--accent-line); color: var(--ink-2); }
-.searchbar span { flex: 1; text-align: left; }
-.searchbar kbd { font-size: 10.5px; }
 .field {
   width: 100%; height: 32px; padding: 0 11px; background: var(--surface);
   border: 1px solid var(--line-2); border-radius: var(--r); outline: none;
@@ -440,6 +436,7 @@ textarea.field { height: auto; padding: 9px 11px; resize: vertical; min-height: 
 .sheet .search { border: none; border-bottom: 1px solid var(--line); border-radius: 0; height: 50px; font-size: 15px; padding: 0 18px; background: transparent; box-shadow: none; }
 .issue { display: grid; grid-template-columns: 8px 86px 1fr auto; gap: 12px; align-items: center; margin: 1px 8px; padding: 8px 10px; border-radius: var(--r-sm); cursor: pointer; }
 .issue[aria-selected="true"] { background: var(--accent-soft); }
+.issue.cmd { grid-template-columns: minmax(0, 1fr) auto; }
 .issue .sq { border-radius: 50%; }
 .issue .id { font: 11.5px var(--mono); color: var(--ink-3); }
 .issue .state { font-size: 11.5px; color: var(--ink-3); }

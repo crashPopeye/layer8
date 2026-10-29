@@ -92,7 +92,7 @@ function App() {
 
   useEffect(() => {
     const onKey = (e) => {
-      if (!(e.metaKey || e.ctrlKey) || e.code !== "Space") return;
+      if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== "k") return;
       e.preventDefault();
       setSheet((s) => (s === "search" ? null : "search"));
     };
@@ -131,9 +131,7 @@ function App() {
     <div class="frame">
       <header class="top" data-tauri-drag-region>
         <div class="wordmark" data-tauri-drag-region><img src="/logo.png" alt="" class="logo" data-tauri-drag-region /><span data-tauri-drag-region>layer<b>8</b></span></div>
-        <div class="grow" data-tauri-drag-region>
-          <button class="searchbar" onClick=${() => setSheet("search")}><${Icon} name="search" /><span>Search menus and actions</span><kbd>⌘ Space</kbd></button>
-        </div>
+        <div class="grow" data-tauri-drag-region></div>
         <div title="Agents working / limit">
           <span class="label">Agents</span>
           <span class="meter">${Array.from({ length: state.maxRunning }, (_, i) => html`<i class=${i < state.running ? "on" : ""} />`)}</span>
