@@ -1,6 +1,6 @@
 import { html, useState, useEffect } from "/vendor/preact-htm.js";
 import { post } from "./api.js";
-import { useKeys, cls, prSquare, statusLabel } from "./util.js";
+import { cls, prSquare, statusLabel } from "./util.js";
 import { SessionsPane, sessionDefaults } from "./sessions.js";
 import { ChangesPane } from "./changes.js";
 import { PRPane } from "./pr.js";
