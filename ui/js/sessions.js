@@ -194,6 +194,45 @@ function Approval({ approval, run }) {
 
 export const HARNESSES = { claude: "Claude Code", codex: "Codex" };
 const MODES = { default: "Ask", acceptEdits: "Auto-accept edits", auto: "Auto-accept", bypassPermissions: "Bypass permissions" };
+const MODE_HINTS = {
+  default: "Asks before edits and commands",
+  acceptEdits: "File edits go through, commands ask",
+  auto: "Acts on its own, asks only for risky actions",
+  bypassPermissions: "Never asks",
+  "": "Follows your Claude Code settings",
+};
+const EFFORTS = { low: "Low", medium: "Medium", high: "High", xhigh: "Extra high", max: "Max" };
+const MODE_SHORT = { default: "Ask", acceptEdits: "Edits", auto: "Auto", bypassPermissions: "Bypass", "": "Settings" };
+
+const ICONS = {
+  plus: "M8 3v10M3 8h10",
+  shield: "M8 1.8 3 3.6v4.1c0 3.1 2.1 5.3 5 6.5 2.9-1.2 5-3.4 5-6.5V3.6L8 1.8Z",
+  chevron: "m4.5 6.5 3.5 3.5 3.5-3.5",
+  up: "M8 13V3.5M4 7.5l4-4 4 4",
+  check: "m3.5 8.5 3 3 6-7",
+};
+const Icon = ({ name, size = 14 }) => html`<svg class="icon" width=${size} height=${size} viewBox="0 0 16 16" fill="none" stroke="currentColor"
+  stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d=${ICONS[name]} /></svg>`;
+
+/** A popover above its button; closes on an outside click or Escape. */
+function Menu({ label, title, cls: c, align = "left", render }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = (e) => box.current && !box.current.contains(e.target) && setOpen(false);
+    const esc = (e) => e.key === "Escape" && (e.stopPropagation(), setOpen(false));
+    document.addEventListener("mousedown", away);
+    document.addEventListener("keydown", esc, true);
+    return () => { document.removeEventListener("mousedown", away); document.removeEventListener("keydown", esc, true); };
+  }, [open]);
+  return html`<div class="menu-anchor" ref=${box}>
+    <button class=${cls("chipbtn", c, open && "on")} title=${title} aria-expanded=${open} onClick=${() => setOpen(!open)}>${label}</button>
+    ${open && html`<div class=${cls("menu", align)} role="menu">${render(() => setOpen(false))}</div>`}
+  </div>`;
+}
+
+const shortModel = (m) => (m ? m.displayName.replace(/\s*\(.*\)\s*$/, "") : "Default model");
 const PREFS = "layer8.composer";
 
 /** The settings new sessions start with: the last ones picked in a composer. */
@@ -213,7 +252,7 @@ function useCapabilities(taskId, harness) {
   const [tick, setTick] = useState(0);
   useEffect(() => {
     setCaps(capsCache.get(key) || null);
-    if (tick === 0 && capsCache.has(key)) return;
+    if (!harness || (tick === 0 && capsCache.has(key))) return;
     let live = true;
     get(`/api/tasks/${taskId}/capabilities?harness=${harness}`).then(
       (c) => { capsCache.set(key, c); if (live) setCaps(c); },
@@ -230,9 +269,12 @@ const kTokens = (n) => (n >= 1000 ? Math.round(n / 1000) + "k" : String(n));
 function ContextMeter({ session }) {
   if (!session || !session.contextTokens) return null;
   const pct = session.contextWindow ? Math.min(100, Math.round((100 * session.contextTokens) / session.contextWindow)) : null;
-  return html`<span class=${cls("ctx", pct >= 80 && "full")} title="Context window used by the last turn">
-    ${pct !== null && html`<span class="gauge"><i style=${`width:${pct}%`}></i></span>`}
-    ${kTokens(session.contextTokens)}${session.contextWindow ? " / " + kTokens(session.contextWindow) : " tokens"}
+  const tokens = kTokens(session.contextTokens) + (session.contextWindow ? " / " + kTokens(session.contextWindow) : "") + " tokens";
+  return html`<span class=${cls("ctx", pct >= 80 && "full")} title=${`Context window used by the last turn: ${tokens}`}>
+    ${pct !== null
+      ? html`<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6" fill="none" stroke="var(--raise-2)" stroke-width="2" />
+          <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="2" pathLength="100" stroke-dasharray=${`${pct} 100`} transform="rotate(-90 8 8)" /></svg>${pct}%`
+      : tokens}
   </span>`;
 }
 
@@ -244,6 +286,9 @@ export function Composer({ task, session, run, busy, busyText, placeholder, onSe
   const [prefs, setPrefs] = useState(sessionDefaults);
   const settings = session ? { harness: session.harness, model: session.model, effort: session.effort, permissionMode: session.permissionMode } : prefs;
   const [caps, refreshCaps] = useCapabilities(task.id, settings.harness);
+  // The other harness's models, listed in the model menu of a new session.
+  const other = session ? null : Object.keys(HARNESSES).find((h) => h !== settings.harness);
+  const [otherCaps] = useCapabilities(task.id, other);
   const ref = useRef(null);
   const fileInput = useRef(null);
   useEffect(() => {
@@ -253,9 +298,9 @@ export function Composer({ task, session, run, busy, busyText, placeholder, onSe
     el.style.height = `${el.scrollHeight}px`;
   }, [text]);
 
-  const change = (k, v) => {
+  const change = (k, v, extra) => {
     const next = { ...settings, [k]: v };
-    if (k === "harness") Object.assign(next, { model: "", effort: "" });
+    if (k === "harness") Object.assign(next, { model: "", effort: "" }, extra);
     if (session) {
       run(put(`/api/sessions/${session.id}/settings`, next));
     } else {
@@ -299,9 +344,46 @@ export function Composer({ task, session, run, busy, busyText, placeholder, onSe
     setFiles([]);
   };
 
-  const select = (k, value, options, title) => html`<select class="pick" title=${title} value=${value} onChange=${(e) => change(k, e.target.value)}>
-    ${options.map(([v, label]) => html`<option key=${v} value=${v}>${label}</option>`)}
-  </select>`;
+  const [more, setMore] = useState({});
+  const modelRows = (harness, list, close) => {
+    const current = harness === settings.harness;
+    const all = list.models.length ? list.models : [{ value: "default", displayName: "Default model" }];
+    // The first few (default and the newest) up front, the rest behind "More models".
+    const picked = all.findIndex((m) => current && (m.value === "default" ? "" : m.value) === settings.model);
+    const cut = more[harness] || all.length <= 6 ? all.length : Math.max(5, picked + 1);
+    const rows = all.slice(0, cut).map((m) => {
+      const value = m.value === "default" ? "" : m.value;
+      const on = current && settings.model === value;
+      return html`<button key=${harness + m.value} class="item" role="menuitemradio" aria-checked=${on} title=${m.description || ""}
+        onClick=${() => { if (current) change("model", value); else change("harness", harness, { model: value }); close(); }}>
+        <span>${m.displayName}</span>${on && html`<${Icon} name="check" />`}
+      </button>`;
+    });
+    if (cut < all.length) {
+      rows.push(html`<button key=${harness + "-more"} class="item more" onClick=${() => setMore({ ...more, [harness]: true })}>
+        <span>More ${HARNESSES[harness]} models</span><span class="faint">${all.length - cut}</span>
+      </button>`);
+    }
+    return rows;
+  };
+
+  const modelMenu = html`<${Menu} align="right" title="Model and effort" label=${html`${shortModel(model)}${session ? "" : html` <span class="faint">· ${HARNESSES[settings.harness]}</span>`} <${Icon} name="chevron" size=${12} />`}
+    render=${(close) => html`
+      <div class="head">${HARNESSES[settings.harness] || settings.harness}</div>
+      ${modelRows(settings.harness, caps, close)}
+      ${other && otherCaps.models.length > 0 && html`<div class="sep"></div><div class="head">${HARNESSES[other]}</div>${modelRows(other, otherCaps, close)}`}
+      ${efforts.length > 0 && html`<div class="sep"></div><div class="head">Effort</div>
+        <div class="seg">${[["", "Default"], ...efforts.map((x) => [x, EFFORTS[x] || x])].map(([v, l]) => html`<button key=${v}
+          aria-pressed=${settings.effort === v} onClick=${() => change("effort", v)}>${l}</button>`)}</div>`}`} />`;
+
+  const modes = [...(settings.permissionMode === "" ? [""] : []), ...Object.keys(MODES)];
+  const modeMenu = html`<${Menu} title="When the agent wants to act" label=${html`<${Icon} name="shield" /> ${MODE_SHORT[settings.permissionMode] ?? settings.permissionMode}`}
+    render=${(close) => html`<div class="head">When the agent wants to act</div>
+      ${modes.map((v) => html`<button key=${v} class="item" role="menuitemradio" aria-checked=${settings.permissionMode === v}
+        onClick=${() => { change("permissionMode", v); close(); }}>
+        <span><span>${MODES[v] || "Harness settings"}</span><span class="hint">${MODE_HINTS[v]}</span></span>
+        ${settings.permissionMode === v && html`<${Icon} name="check" />`}
+      </button>`)}`} />`;
 
   return html`<div class="composer" onDragOver=${(e) => e.preventDefault()} onDrop=${(e) => { e.preventDefault(); attach([...e.dataTransfer.files]); }}>
     ${matches.length > 0 && html`<div class="slash">
@@ -341,19 +423,15 @@ export function Composer({ task, session, run, busy, busyText, placeholder, onSe
         if (e.key === "Escape") e.target.blur();
       }}></textarea>
     <div class="bar">
-      <button class="key small ghost" title="Attach files (or drop or paste them)" onClick=${() => fileInput.current.click()}>＋ File</button>
+      <button class="chipbtn round" title="Attach files (or drop or paste them)" onClick=${() => fileInput.current.click()}><${Icon} name="plus" /></button>
       <input ref=${fileInput} type="file" multiple hidden onChange=${(e) => { attach([...e.target.files]); e.target.value = ""; }} />
-      ${session
-        ? html`<span class="pick fixed" title="A session keeps its harness">${HARNESSES[settings.harness] || settings.harness}</span>`
-        : select("harness", settings.harness, Object.entries(HARNESSES), "Harness")}
-      ${select("model", settings.model, [["", model && settings.model === "" ? model.displayName : "Default model"], ...models.map((m) => [m.value, m.displayName])], "Model")}
-      ${efforts.length > 0 && select("effort", settings.effort, [["", "Default effort"], ...efforts.map((x) => [x, x])], "Effort")}
-      ${select("permissionMode", settings.permissionMode, [...(settings.permissionMode === "" ? [["", "Harness settings"]] : []), ...Object.entries(MODES)], "When the agent wants to act")}
-      <span class="grow"></span>
+      ${modeMenu}
       <${ContextMeter} session=${session} />
+      <span class="grow"></span>
+      ${modelMenu}
       ${busy && onStop
-        ? html`<button class="key small danger" onClick=${onStop}>■ Stop</button>`
-        : html`<button class="key small primary" disabled=${(!text.trim() && !files.length) || uploading > 0} onClick=${send}>↵ Send</button>`}
+        ? html`<button class="send stop" title="Stop" onClick=${onStop}><span class="sq"></span></button>`
+        : html`<button class="send" title="Send (↵)" disabled=${(!text.trim() && !files.length) || uploading > 0} onClick=${send}><${Icon} name="up" size=${15} /></button>`}
     </div>
   </div>`;
 }
