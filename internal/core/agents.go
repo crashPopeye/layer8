@@ -12,35 +12,21 @@ import (
 	"github.com/crashPopeye/layer8/internal/codex"
 )
 
-type cachedCaps struct {
-	caps claude.Capabilities
-	at   time.Time
-}
-
 // Capabilities lists the models and commands a harness offers in a task's worktree.
+// It asks the harness each time, so skills added since show up.
 func (a *App) Capabilities(ctx context.Context, harness, taskID string) (claude.Capabilities, error) {
 	t, err := a.Store.Task(taskID)
 	if err != nil {
 		return claude.Capabilities{}, err
 	}
-	key := harness + "\x00" + t.WorktreePath
-	if c, ok := a.caps.Load(key); ok && time.Since(c.(cachedCaps).at) < 10*time.Minute {
-		return c.(cachedCaps).caps, nil
-	}
-	var caps claude.Capabilities
 	switch harness {
 	case "claude":
-		caps, err = claude.Probe(ctx, "", t.WorktreePath)
+		return claude.Probe(ctx, "", t.WorktreePath)
 	case "codex":
-		caps, err = codex.Probe(ctx, "", t.WorktreePath)
+		return codex.Probe(ctx, "", t.WorktreePath)
 	default:
-		return caps, fmt.Errorf("unknown harness %q", harness)
+		return claude.Capabilities{}, fmt.Errorf("unknown harness %q", harness)
 	}
-	if err != nil {
-		return caps, err
-	}
-	a.caps.Store(key, cachedCaps{caps, time.Now()})
-	return caps, nil
 }
 
 // Attach saves a file in the task's artifacts, where agents can read it, and returns its path.

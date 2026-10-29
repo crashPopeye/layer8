@@ -1,4 +1,4 @@
-import { html, useState, useEffect, useRef, useMemo } from "/vendor/preact-htm.js";
+import { html, useState, useEffect, useRef, useMemo, useCallback } from "/vendor/preact-htm.js";
 import { get, post, put, del, upload, onSessionEvents } from "./api.js";
 import { clock, cls, usd } from "./util.js";
 
@@ -202,21 +202,24 @@ export function sessionDefaults() {
   }
 }
 
+// The last list seen per task and harness, shown at once while a fresh one loads.
 const capsCache = new Map();
 function useCapabilities(taskId, harness) {
   const key = `${taskId}/${harness}`;
   const [caps, setCaps] = useState(capsCache.get(key) || null);
+  const [tick, setTick] = useState(0);
   useEffect(() => {
     setCaps(capsCache.get(key) || null);
-    if (capsCache.has(key)) return;
+    if (tick === 0 && capsCache.has(key)) return;
     let live = true;
     get(`/api/tasks/${taskId}/capabilities?harness=${harness}`).then(
       (c) => { capsCache.set(key, c); if (live) setCaps(c); },
-      () => live && setCaps({ models: [], commands: [] }),
+      () => live && !capsCache.has(key) && setCaps({ models: [], commands: [] }),
     );
     return () => { live = false; };
-  }, [key]);
-  return caps || { models: [], commands: [] };
+  }, [key, tick]);
+  const refresh = useCallback(() => setTick((n) => n + 1), []);
+  return [caps || { models: [], commands: [] }, refresh];
 }
 
 const kTokens = (n) => (n >= 1000 ? Math.round(n / 1000) + "k" : String(n));
@@ -237,7 +240,7 @@ export function Composer({ task, session, run, busy, busyText, placeholder, onSe
   const [pick, setPick] = useState(0);
   const [prefs, setPrefs] = useState(sessionDefaults);
   const settings = session ? { harness: session.harness, model: session.model, effort: session.effort, permissionMode: session.permissionMode } : prefs;
-  const caps = useCapabilities(task.id, settings.harness);
+  const [caps, refreshCaps] = useCapabilities(task.id, settings.harness);
   const ref = useRef(null);
   const fileInput = useRef(null);
   useEffect(() => {
@@ -310,7 +313,12 @@ export function Composer({ task, session, run, busy, busyText, placeholder, onSe
       ${uploading > 0 && html`<span class="faint">uploading…</span>`}
     </div>`}
     <textarea ref=${ref} rows="1" value=${text} placeholder=${busy ? busyText : placeholder + " · / for skills"}
-      onInput=${(e) => { setText(e.target.value); setPick(0); }}
+      onInput=${(e) => {
+        // Opening the menu reads the commands again, so newly added skills show up.
+        if (/^[\/$]$/.test(e.target.value) && !/^[\/$]/.test(text)) refreshCaps();
+        setText(e.target.value);
+        setPick(0);
+      }}
       onPaste=${(e) => { const fs = [...e.clipboardData.files]; if (fs.length) { e.preventDefault(); attach(fs); } }}
       onKeyDown=${(e) => {
         if (matches.length && (e.key === "ArrowDown" || e.key === "ArrowUp")) {

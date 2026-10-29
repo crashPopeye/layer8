@@ -36,8 +36,6 @@ type App struct {
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 
-	caps sync.Map // harness+cwd -> capabilities
-
 	pollMu    sync.Mutex
 	syncMu    sync.Mutex
 	lastSync  atomic.Int64 // unix nanos of the last SyncAll start
