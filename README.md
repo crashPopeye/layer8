@@ -40,6 +40,7 @@ You need Go (see `go.mod`), Rust, and the Tauri CLI (`cargo install tauri-cli --
 
 ```sh
 make test       # Go vet + tests (run anywhere)
+make dev        # run layer8 from source and open it in your browser (Ctrl+C stops it)
 make daemon     # the service in the foreground; UI at http://127.0.0.1:7878
 make app        # a local layer8.app (macOS)
 ```

@@ -21,6 +21,13 @@ export async function connect() {
     daemon = await invoke("daemon_info");
     return daemon;
   }
+  // `make dev` opens the page with #token=…: remember it and take it out of the address bar.
+  const given = new URLSearchParams(location.hash.slice(1)).get("token");
+  if (given) {
+    rememberToken(given);
+    history.replaceState(null, "", location.pathname + location.search);
+    return daemon;
+  }
   const s = saved();
   daemon = s && s.token ? { url: location.origin, token: s.token } : null;
   return daemon;
