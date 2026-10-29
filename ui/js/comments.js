@@ -1,6 +1,7 @@
 import { html, useState, useRef, useLayoutEffect } from "/vendor/preact-htm.js";
 import { post, del } from "./api.js";
 import { cls } from "./util.js";
+import { Icon } from "./icons.js";
 
 /** Existing comments on one line, plus an editor when `editing`. */
 export function LineComments({ comments, editing, onDone, base, run, inSrc }) {
@@ -99,6 +100,6 @@ export function Commentable({ base, locate, run, class: klass, children, html: i
             <div class="quote ellipsis">${sel.quote}</div>
             <${CommentBox} body=${body} setBody=${setBody} onSave=${save} onCancel=${close} />
           </div>`
-        : html`<button class="key small primary" onMouseDown=${(e) => { e.preventDefault(); setWriting(true); }}><kbd>C</kbd> Comment</button>`}
+        : html`<button class="key small primary" onMouseDown=${(e) => { e.preventDefault(); setWriting(true); }}><${Icon} name="message-square" /> Comment <kbd>C</kbd></button>`}
     </div>`}`;
 }

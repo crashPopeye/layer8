@@ -2,6 +2,7 @@ import { html, useState, useEffect, useCallback } from "/vendor/preact-htm.js";
 import { get, post, withQuery } from "./api.js";
 import { cls, day } from "./util.js";
 import { LineComments, Commentable } from "./comments.js";
+import { Icon } from "./icons.js";
 
 export function ChangesPane({ task, slice, state, run }) {
   const [sha, setSha] = useState("");
@@ -75,7 +76,7 @@ export function ChangesPane({ task, slice, state, run }) {
       ${dirty && html`<div class="commit-box">
         <span class="label">Commit everything here</span>
         <textarea class="field" rows="3" placeholder="Commit message" value=${message} onInput=${(e) => setMessage(e.target.value)}></textarea>
-        <button class="key" disabled=${!message.trim()} onClick=${commit}>Commit</button>
+        <button class="key" disabled=${!message.trim()} onClick=${commit}><${Icon} name="git-commit-horizontal" /> Commit</button>
       </div>`}
     </div>
     <div class="content">

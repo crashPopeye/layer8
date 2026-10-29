@@ -3,6 +3,7 @@ import { get, post, on, onOpen, startEvents, shell, connect, rememberToken } fro
 import { home, cls } from "./util.js";
 import { TaskView } from "./task.js";
 import { NewTaskSheet, SettingsSheet, CommandSheet } from "./sheets.js";
+import { Icon } from "./icons.js";
 
 const empty = { projects: [], folders: [], tasks: [], slices: [], sessions: [], approvals: [], running: 0, queued: 0, maxRunning: 6, update: {} };
 
@@ -131,7 +132,7 @@ function App() {
       <header class="top" data-tauri-drag-region>
         <div class="wordmark" data-tauri-drag-region><img src="/logo.png" alt="" class="logo" data-tauri-drag-region /><span data-tauri-drag-region>layer<b>8</b></span></div>
         <div class="grow" data-tauri-drag-region>
-          <button class="searchbar" onClick=${() => setSheet("search")}><span>Search menus and actions</span><kbd>⌘ Space</kbd></button>
+          <button class="searchbar" onClick=${() => setSheet("search")}><${Icon} name="search" /><span>Search menus and actions</span><kbd>⌘ Space</kbd></button>
         </div>
         <div title="Agents working / limit">
           <span class="label">Agents</span>
@@ -143,7 +144,7 @@ function App() {
         <div title=${up ? "Connected" : "Backend not responding"}>
           <span class=${cls("sq", up ? "idle" : "failed")}></span><span class="label">${/^\d/.test(state.version || "") ? "v" + state.version : state.version || "?"}</span>
         </div>
-        <div><button class="key primary" onClick=${() => setSheet("new")}>New task</button></div>
+        <div><button class="key primary" onClick=${() => setSheet("new")}><${Icon} name="plus" /> New task</button></div>
       </header>
 
       <nav class="rail">
@@ -177,7 +178,7 @@ function App() {
       </main>
 
       <footer class="foot">
-        <button class="key small ghost" onClick=${() => setSheet("settings")}>Settings</button>
+        <button class="key small ghost" onClick=${() => setSheet("settings")}><${Icon} name="settings" /> Settings</button>
       </footer>
 
       ${sheet === "new" &&
@@ -204,7 +205,7 @@ function Rail({ state, selected, onSelect, onNew, onSettings, run }) {
     return html`<div class="empty">
       <div class="display">Empty</div>
       Create a project and add its folders. Any folder works; git repos also get a worktree per task and per PR.
-      <div class="btns"><button class="key" onClick=${onSettings}>Add a project</button></div>
+      <div class="btns"><button class="key" onClick=${onSettings}><${Icon} name="folder-plus" /> Add a project</button></div>
     </div>`;
   }
   const active = state.tasks.filter((t) => t.status === "active");
@@ -216,7 +217,7 @@ function Rail({ state, selected, onSelect, onNew, onSettings, run }) {
       <div class="project-head">
         <span class="label">${p.name}</span>
         <span class="faint ellipsis">${folders.map((f) => f.name).join(" · ") || "no folders"}</span>
-        <button class="key small ghost" title=${`New task in ${p.name}`} disabled=${!folders.length} onClick=${() => onNew(p.id)}>+</button>
+        <button class="key small ghost" title=${`New task in ${p.name}`} disabled=${!folders.length} onClick=${() => onNew(p.id)}><${Icon} name="plus" /></button>
       </div>
       ${tasks.map((t) => {
         const sessions = state.sessions.filter((s) => s.taskId === t.id);
@@ -229,7 +230,7 @@ function Rail({ state, selected, onSelect, onNew, onSettings, run }) {
           <button class="key small ghost archive" title="Archive this task. Branches and worktrees are kept." onClick=${(e) => {
             e.stopPropagation();
             if (confirm(`Archive "${t.title}"? Branches and worktrees are kept.`)) run(post(`/api/tasks/${t.id}/archive`, { removeWorktrees: false }));
-          }}>Archive</button>
+          }}><${Icon} name="archive" /> Archive</button>
           <span class="sub ellipsis">
             ${needs ? html`<span class="waitc">needs approval · </span>` : ""}
             ${folders.length > 1 ? folderName[t.folderId] + " · " : ""}

@@ -6,12 +6,13 @@ import { ChangesPane } from "./changes.js";
 import { PRPane } from "./pr.js";
 import { DocsPane } from "./docs.js";
 import { Side } from "./side.js";
+import { Icon } from "./icons.js";
 
 const TABS = [
-  ["sessions", "Sessions"],
-  ["changes", "Changes"],
-  ["pr", "Pull request"],
-  ["docs", "Docs"],
+  ["sessions", "Sessions", "messages-square"],
+  ["changes", "Changes", "file-diff"],
+  ["pr", "Pull request", "git-pull-request"],
+  ["docs", "Docs", "file-text"],
 ];
 
 export function TaskView({ state, task, run, commands }) {
@@ -84,16 +85,16 @@ export function TaskView({ state, task, run, commands }) {
     <div style="display:grid;grid-template-columns:minmax(0,1fr) 300px;flex:1;min-height:0">
       <div class="pane" style="min-width:0">
         <div class="tabs" role="tablist">
-          ${TABS.map(([id, label]) => {
+          ${TABS.map(([id, label, icon]) => {
             const n = id === "sessions" ? sessions.length : id === "pr" && slice && slice.openThreads ? slice.openThreads : null;
             return html`<button key=${id} class="tab" role="tab" aria-selected=${tab === id} onClick=${() => setTab(id)}>
-              ${label}${n ? html` <span class="n">(${n})</span>` : ""}
+              <${Icon} name=${icon} /> ${label}${n ? html` <span class="n">(${n})</span>` : ""}
             </button>`;
           })}
           <span class="grow"></span>
-          <button class="tool" title="Open a terminal in this worktree (T)" onClick=${() => open("terminal")}>${">_"}</button>
-          <button class="tool" title="Open the worktree in your editor (E)" onClick=${() => open("editor")}>${"{ }"}</button>
-          ${isGit && html`<button class="tool" title="Fetch and rebase this task's branches onto the latest default branch" onClick=${() => run(post(`/api/tasks/${task.id}/sync`))}>⟳</button>`}
+          <button class="tool" title="Open a terminal in this worktree" onClick=${() => open("terminal")}><${Icon} name="square-terminal" size=${15} /></button>
+          <button class="tool" title="Open the worktree in your editor" onClick=${() => open("editor")}><${Icon} name="code-xml" size=${15} /></button>
+          ${isGit && html`<button class="tool" title="Fetch and rebase this task's branches onto the latest default branch" onClick=${() => run(post(`/api/tasks/${task.id}/sync`))}><${Icon} name="refresh-cw" size=${15} /></button>`}
         </div>
 
         ${slices.length > 0 && html`<${StackStrip} task=${task} slices=${slices} state=${state} ctx=${ctx} onPick=${(id) => { setCtx(id); setSessionId(null); }} />`}
@@ -117,13 +118,13 @@ export function TaskView({ state, task, run, commands }) {
           ${syncNote && html`<div class=${["conflict", "error", "diverged"].includes(where.syncState) ? "bad" : "dim"} style="margin-top:6px">${syncNote}</div>`}
           <div class="btns">
             ${!slice && html`
-              <button class="key small" onClick=${() => start("research")}><kbd>R</kbd> Research</button>
-              <button class="key small" onClick=${() => start("plan")}><kbd>P</kbd> Plan</button>`}
-            <button class="key small" onClick=${() => start("implement")}><kbd>I</kbd> ${slice ? "Implement " + slice.key : "Implement"}</button>
+              <button class="key small" onClick=${() => start("research")}><${Icon} name="telescope" /> Research</button>
+              <button class="key small" onClick=${() => start("plan")}><${Icon} name="list-checks" /> Plan</button>`}
+            <button class="key small" onClick=${() => start("implement")}><${Icon} name="hammer" /> ${slice ? "Implement " + slice.key : "Implement"}</button>
             ${!slice && isGit && html`
-              <button class="key small" title="Create one stacked branch + session per PR listed in plan.md" onClick=${() => run(post(`/api/tasks/${task.id}/slices`))}>Split into PRs</button>
-              ${!slices.length && html`<button class="key small" title="Track this task's own branch as a single PR" onClick=${() => run(post(`/api/tasks/${task.id}/single-slice`))}>Single PR</button>`}`}
-            ${slice && slice.syncState === "conflict" && html`<button class="key small primary" onClick=${async () => { const s = await run(post(`/api/slices/${slice.id}/resolve`)); if (s) { setSessionId(s.id); setTab("sessions"); } }}>Resolve conflicts</button>`}
+              <button class="key small" title="Create one stacked branch + session per PR listed in plan.md" onClick=${() => run(post(`/api/tasks/${task.id}/slices`))}><${Icon} name="git-fork" /> Split into PRs</button>
+              ${!slices.length && html`<button class="key small" title="Track this task's own branch as a single PR" onClick=${() => run(post(`/api/tasks/${task.id}/single-slice`))}><${Icon} name="git-pull-request" /> Single PR</button>`}`}
+            ${slice && slice.syncState === "conflict" && html`<button class="key small primary" onClick=${async () => { const s = await run(post(`/api/slices/${slice.id}/resolve`)); if (s) { setSessionId(s.id); setTab("sessions"); } }}><${Icon} name="git-merge" /> Resolve conflicts</button>`}
           </div>
         </div>
         <${Side} state=${state} task=${task} slice=${slice} session=${session} run=${run} onSession=${(s) => { setSessionId(s.id); setTab("sessions"); }} />

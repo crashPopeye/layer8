@@ -1,6 +1,7 @@
 import { html, useState, useEffect } from "/vendor/preact-htm.js";
 import { get, post } from "./api.js";
 import { cls } from "./util.js";
+import { Icon } from "./icons.js";
 
 export function PRPane(props) {
   return props.slice ? html`<${SlicePR} ...${props} />` : html`<${NoSlice} ...${props} />`;
@@ -45,7 +46,7 @@ function SlicePR({ task, slice, slices, run, onSession }) {
       <div class="display" style="font-size:18px">No pull request yet</div>
       <p class="dim">Pushes <b>${slice.branch}</b> and opens a PR into <b>${parent && parent.prState !== "MERGED" ? parent.branch : (task.baseRef || "").replace(/^origin\//, "")}</b>.
       ${parent && !parent.prNumber && parent.prState !== "MERGED" ? html` Open ${parent.key}'s PR first: this one is stacked on it.` : ""}</p>
-      <div class="btns"><button class="key primary" onClick=${() => run(post(`/api/slices/${slice.id}/pr`))}>Push and open PR</button></div>
+      <div class="btns"><button class="key primary" onClick=${() => run(post(`/api/slices/${slice.id}/pr`))}><${Icon} name="git-pull-request-arrow" /> Push and open PR</button></div>
     </div>`;
   }
   const checks = live ? live.checks : [];
@@ -61,10 +62,10 @@ function SlicePR({ task, slice, slices, run, onSession }) {
       <span class="faint">into ${slice.prBase}</span>
     </div>
     <div class="btns">
-      <button class="key" disabled=${!failing.length} onClick=${() => act("fix-ci")}>Fix CI${failing.length ? ` (${failing.length})` : ""}</button>
-      <button class="key" disabled=${!threads.length} onClick=${() => act("review")}>Address review${threads.length ? ` (${threads.length})` : ""}</button>
-      <button class="key" onClick=${() => run(post(`/api/slices/${slice.id}/push`))}>Push</button>
-      <button class="key ghost" onClick=${() => { run(post("/api/github/refresh")); load(); }}>Refresh</button>
+      <button class="key" disabled=${!failing.length} onClick=${() => act("fix-ci")}><${Icon} name="wrench" /> Fix CI${failing.length ? ` (${failing.length})` : ""}</button>
+      <button class="key" disabled=${!threads.length} onClick=${() => act("review")}><${Icon} name="message-square-reply" /> Address review${threads.length ? ` (${threads.length})` : ""}</button>
+      <button class="key" onClick=${() => run(post(`/api/slices/${slice.id}/push`))}><${Icon} name="upload" /> Push</button>
+      <button class="key ghost" onClick=${() => { run(post("/api/github/refresh")); load(); }}><${Icon} name="refresh-cw" /> Refresh</button>
     </div>
     ${error && html`<p class="bad">${error}</p>`}
     <div class="section">

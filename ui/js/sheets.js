@@ -1,6 +1,7 @@
 import { html, useState, useEffect, useMemo, useRef } from "/vendor/preact-htm.js";
 import { get, post, put, del, withQuery, shell } from "./api.js";
 import { home, useEscape, useFocus } from "./util.js";
+import { Icon } from "./icons.js";
 
 const store = {
   get(k) {
@@ -214,13 +215,13 @@ export function SettingsSheet({ state, run, upd, onCheckUpdate, onClose }) {
           ${state.projects.map((p) => html`<div key=${p.id} style="display:grid;grid-template-columns:minmax(0,1fr);gap:2px">
             <div class="list-row" style="cursor:default;padding-left:0">
               <span class="grow ellipsis">${p.name}</span>
-              <button class="key small" onClick=${() => addFolder(p.id)}>Add folder…</button>
-              <button class="key small danger" onClick=${() => confirm(`Remove the project ${p.name} and its tasks from layer8? Files and branches are not touched.`) && run(del(`/api/projects/${p.id}`))}>✕</button>
+              <button class="key small" onClick=${() => addFolder(p.id)}><${Icon} name="folder-plus" /> Add folder…</button>
+              <button class="key small danger" onClick=${() => confirm(`Remove the project ${p.name} and its tasks from layer8? Files and branches are not touched.`) && run(del(`/api/projects/${p.id}`))} title="Remove project"><${Icon} name="trash-2" /></button>
             </div>
             ${state.folders.filter((f) => f.projectId === p.id).map((f) => html`<div key=${f.id} class="list-row" style="cursor:default">
               <span style="width:120px" class="ellipsis">${f.name}</span><span class="grow faint ellipsis">${home(f.path)}</span>
               <span class="faint">${f.isGit ? "git · " + f.defaultBranch : "folder"}</span>
-              <button class="key small danger" onClick=${() => confirm(`Remove ${f.name} and its tasks from ${p.name}? Files and branches are not touched.`) && run(del(`/api/folders/${f.id}`))}>✕</button>
+              <button class="key small danger" onClick=${() => confirm(`Remove ${f.name} and its tasks from ${p.name}? Files and branches are not touched.`) && run(del(`/api/folders/${f.id}`))} title="Remove folder"><${Icon} name="trash-2" /></button>
             </div>`)}
           </div>`)}
           <div style="display:flex;gap:6px">
@@ -232,8 +233,8 @@ export function SettingsSheet({ state, run, upd, onCheckUpdate, onClose }) {
         <span class="label">Linear</span>
         ${state.linearOAuth
           ? html`<div style="display:flex;gap:8px;align-items:center"><span>Connected</span>
-              <button class="key small danger" onClick=${() => run(del("/api/linear/connect"))}>Disconnect</button></div>`
-          : html`<div><button class="key" onClick=${() => run(post("/api/linear/connect"))}>Connect Linear</button></div>`}
+              <button class="key small danger" onClick=${() => run(del("/api/linear/connect"))}><${Icon} name="unlink" /> Disconnect</button></div>`
+          : html`<div><button class="key" onClick=${() => run(post("/api/linear/connect"))}><${Icon} name="link" /> Connect Linear</button></div>`}
         ${!state.linearOAuth && html`<span class="hint">Opens Linear in your browser to approve access.</span>`}
         <span class="label">or an API key</span>
         <input class="field" type="password" placeholder=${cfg.linearApiKey === SET ? "•••••••• set — type to replace" : "lin_api_…"} value=${linearKey} onInput=${(e) => setLinearKey(e.target.value)} />
@@ -275,7 +276,7 @@ export function SettingsSheet({ state, run, upd, onCheckUpdate, onClose }) {
 
         <span class="label">Updates</span>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-          ${shell.available ? html`<button class="key" onClick=${onCheckUpdate}>Check now</button>` : ""}
+          ${shell.available ? html`<button class="key" onClick=${onCheckUpdate}><${Icon} name="refresh-cw" /> Check now</button>` : ""}
           <span class="faint">service ${state.version}${upd && upd.current ? ` · app ${upd.current}` : ""}${upd && upd.available ? ` · ${upd.version} available` : upd && upd.checked ? " · up to date" : ""}${upd && upd.error ? " · " + upd.error : ""}</span>
         </div>
         <span class="label">Command line</span>

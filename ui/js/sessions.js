@@ -1,6 +1,7 @@
 import { html, useState, useEffect, useRef, useMemo, useCallback } from "/vendor/preact-htm.js";
 import { get, post, put, del, upload, onSessionEvents } from "./api.js";
 import { clock, cls, usd } from "./util.js";
+import { Icon } from "./icons.js";
 
 export function SessionsPane({ state, task, slice, sessions, session, onSelect, run, onStart }) {
   const approvals = state.approvals.filter((a) => session && a.sessionId === session.id);
@@ -27,9 +28,9 @@ export function SessionsPane({ state, task, slice, sessions, session, onSelect, 
     <div class="tabs subtabs">
       ${sessions.map((s) => html`<div key=${s.id} class="tab session-tab" aria-selected=${session && s.id === session.id} onClick=${() => onSelect(s.id)} title=${s.title}>
         <span class=${cls("sq", s.status)}></span>${s.title.length > 26 ? s.title.slice(0, 26) + "…" : s.title}
-        <button class="x" title="Delete session" onClick=${(e) => { e.stopPropagation(); remove(s); }}>✕</button>
+        <button class="x" title="Delete session" onClick=${(e) => { e.stopPropagation(); remove(s); }}><${Icon} name="x" size=${12} /></button>
       </div>`)}
-      <button class="tab" title="New chat session here" onClick=${() => onSelect("__new")}>+</button>
+      <button class="tab" title="New chat session here" onClick=${() => onSelect("__new")}><${Icon} name="plus" /></button>
     </div>
     ${session
       ? html`
@@ -182,12 +183,12 @@ function Approval({ approval, run }) {
     <div class="what">Approve ${approval.toolName}?</div>
     <pre class="selectable">${describe(approval)}</pre>
     <div class="row">
-      <button class="key primary" onClick=${() => decide(true)}>Allow</button>
+      <button class="key primary" onClick=${() => decide(true)}><${Icon} name="check" /> Allow</button>
       ${always.length > 0 && html`<button class="key" title=${`Adds ${always.join(", ")} to your Claude Code settings (~/.claude/settings.json), so it isn't asked again in any task`}
-        onClick=${() => decide(true, true)}>Always allow ${always.join(", ")}</button>`}
+        onClick=${() => decide(true, true)}><${Icon} name="check-check" /> Always allow ${always.join(", ")}</button>`}
       <input class="field" placeholder="Or tell the agent what to do instead…" value=${reason}
         onInput=${(e) => setReason(e.target.value)} onKeyDown=${(e) => e.key === "Enter" && decide(false)} />
-      <button class="key danger" onClick=${() => decide(false)}>Deny</button>
+      <button class="key danger" onClick=${() => decide(false)}><${Icon} name="x" /> Deny</button>
     </div>
   </div></div>`;
 }
@@ -203,16 +204,6 @@ const MODE_HINTS = {
 };
 const EFFORTS = { low: "Low", medium: "Medium", high: "High", xhigh: "Extra high", max: "Max" };
 const MODE_SHORT = { default: "Ask", acceptEdits: "Edits", auto: "Auto", bypassPermissions: "Bypass", "": "Settings" };
-
-const ICONS = {
-  plus: "M8 3v10M3 8h10",
-  shield: "M8 1.8 3 3.6v4.1c0 3.1 2.1 5.3 5 6.5 2.9-1.2 5-3.4 5-6.5V3.6L8 1.8Z",
-  chevron: "m4.5 6.5 3.5 3.5 3.5-3.5",
-  up: "M8 13V3.5M4 7.5l4-4 4 4",
-  check: "m3.5 8.5 3 3 6-7",
-};
-const Icon = ({ name, size = 14 }) => html`<svg class="icon" width=${size} height=${size} viewBox="0 0 16 16" fill="none" stroke="currentColor"
-  stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d=${ICONS[name]} /></svg>`;
 
 /** A popover above its button; closes on an outside click or Escape. */
 function Menu({ label, title, cls: c, align = "left", render }) {
@@ -367,7 +358,7 @@ export function Composer({ task, session, run, busy, busyText, placeholder, onSe
     return rows;
   };
 
-  const modelMenu = html`<${Menu} align="right" title="Model and effort" label=${html`${shortModel(model)}${session ? "" : html` <span class="faint">· ${HARNESSES[settings.harness]}</span>`} <${Icon} name="chevron" size=${12} />`}
+  const modelMenu = html`<${Menu} align="right" title="Model and effort" label=${html`${shortModel(model)}${session ? "" : html` <span class="faint">· ${HARNESSES[settings.harness]}</span>`} <${Icon} name="chevron-down" size=${12} />`}
     render=${(close) => html`
       <div class="head">${HARNESSES[settings.harness] || settings.harness}</div>
       ${modelRows(settings.harness, caps, close)}
@@ -394,7 +385,7 @@ export function Composer({ task, session, run, busy, busyText, placeholder, onSe
     </div>`}
     ${(files.length > 0 || uploading > 0) && html`<div class="files">
       ${files.map((f) => html`<span key=${f} class="chip" title=${f}>${f.split("/").pop().replace(/^\d{6}\.\d{3}-/, "")}
-        <button class="x" onClick=${() => setFiles(files.filter((x) => x !== f))}>✕</button></span>`)}
+        <button class="x" onClick=${() => setFiles(files.filter((x) => x !== f))}><${Icon} name="x" size=${11} /></button></span>`)}
       ${uploading > 0 && html`<span class="faint">uploading…</span>`}
     </div>`}
     <textarea ref=${ref} rows="1" value=${text} placeholder=${busy ? busyText : placeholder + " · / for skills"}
@@ -431,7 +422,7 @@ export function Composer({ task, session, run, busy, busyText, placeholder, onSe
       ${modelMenu}
       ${busy && onStop
         ? html`<button class="send stop" title="Stop" onClick=${onStop}><span class="sq"></span></button>`
-        : html`<button class="send" title="Send (↵)" disabled=${(!text.trim() && !files.length) || uploading > 0} onClick=${send}><${Icon} name="up" size=${15} /></button>`}
+        : html`<button class="send" title="Send (↵)" disabled=${(!text.trim() && !files.length) || uploading > 0} onClick=${send}><${Icon} name="arrow-up" size=${16} /></button>`}
     </div>
   </div>`;
 }
