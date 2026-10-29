@@ -159,6 +159,27 @@ func TestAllowEchoesInput(t *testing.T) {
 	}
 }
 
+func TestAlwaysSavesSuggestedRulesInUserSettings(t *testing.T) {
+	var written []byte
+	p := &Process{answered: map[string]bool{}, pending: map[string]chan controlResult{}}
+	p.stdin = writerFunc(func(b []byte) (int, error) { written = append(written, b...); return len(b), nil })
+	var rules []Rule
+	p.h.OnPermission = func(req PermissionRequest, respond func(Decision)) {
+		rules = req.AlwaysRules()
+		respond(Decision{Allow: true, Always: true})
+	}
+	p.handleControlRequest("id1", json.RawMessage(`{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"npm test"},"tool_use_id":"t",
+		"permission_suggestions":[{"type":"addRules","rules":[{"toolName":"Bash","ruleContent":"npm test:*"}],"behavior":"allow","destination":"localSettings"},{"type":"setMode","mode":"acceptEdits","destination":"session"}]}`))
+	if len(rules) != 1 || rules[0].String() != "Bash(npm test:*)" {
+		t.Fatalf("rules %+v", rules)
+	}
+	got := string(written)
+	want := `"updatedPermissions":[{"type":"addRules","rules":[{"toolName":"Bash","ruleContent":"npm test:*"}],"behavior":"allow","destination":"userSettings"}]`
+	if !strings.Contains(got, want) {
+		t.Fatalf("got %s", got)
+	}
+}
+
 type writerFunc func([]byte) (int, error)
 
 func (f writerFunc) Write(b []byte) (int, error) { return f(b) }

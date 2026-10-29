@@ -176,12 +176,15 @@ function describe(a) {
 
 function Approval({ approval, run }) {
   const [reason, setReason] = useState("");
-  const decide = (allow) => run(post(`/api/approvals/${approval.id}`, { allow, message: allow ? "" : reason }));
+  const decide = (allow, always = false) => run(post(`/api/approvals/${approval.id}`, { allow, always, message: allow ? "" : reason }));
+  const always = approval.always || [];
   return html`<div class="approval"><div>
     <div class="what">Approve ${approval.toolName}?</div>
     <pre class="selectable">${describe(approval)}</pre>
     <div class="row">
       <button class="key primary" onClick=${() => decide(true)}>Allow</button>
+      ${always.length > 0 && html`<button class="key" title=${`Adds ${always.join(", ")} to your Claude Code settings (~/.claude/settings.json), so it isn't asked again in any task`}
+        onClick=${() => decide(true, true)}>Always allow ${always.join(", ")}</button>`}
       <input class="field" placeholder="Or tell the agent what to do instead…" value=${reason}
         onInput=${(e) => setReason(e.target.value)} onKeyDown=${(e) => e.key === "Enter" && decide(false)} />
       <button class="key danger" onClick=${() => decide(false)}>Deny</button>

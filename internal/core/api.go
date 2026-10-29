@@ -67,6 +67,9 @@ func (a *App) State() (State, error) {
 	if s.Approvals, err = a.Store.PendingApprovals(); err != nil {
 		return s, err
 	}
+	for i := range s.Approvals {
+		s.Approvals[i].Always = a.Sessions.AlwaysRules(s.Approvals[i].ID)
+	}
 	s.Running, s.Queued = a.Sessions.Counts()
 	cfg := a.Config.Get()
 	s.MaxRunning = cfg.MaxConcurrentSessions
@@ -386,12 +389,13 @@ func (a *App) Handler(h Hooks) http.Handler {
 	route("POST /api/approvals/{id}", func(r *http.Request) (any, error) {
 		var in struct {
 			Allow   bool
+			Always  bool
 			Message string
 		}
 		if err := readJSON(r, &in); err != nil {
 			return nil, err
 		}
-		if err := a.Sessions.Decide(r.PathValue("id"), in.Allow, in.Message); err != nil {
+		if err := a.Sessions.Decide(r.PathValue("id"), in.Allow, in.Always, in.Message); err != nil {
 			return nil, &httpError{http.StatusConflict, err.Error()}
 		}
 		return nil, nil

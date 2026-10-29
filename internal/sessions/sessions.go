@@ -54,6 +54,7 @@ type live struct {
 type pendingApproval struct {
 	sessionID string
 	requestID string
+	always    []string // rules "Always allow" saves
 	respond   func(claude.Decision)
 }
 
@@ -242,7 +243,11 @@ func (m *Manager) handlers(sessionID string, l *live) claude.Handlers {
 				return
 			}
 			m.mu.Lock()
-			m.approvals[a.ID] = &pendingApproval{sessionID: sessionID, requestID: req.RequestID, respond: respond}
+			var always []string
+			for _, r := range req.AlwaysRules() {
+				always = append(always, r.String())
+			}
+			m.approvals[a.ID] = &pendingApproval{sessionID: sessionID, requestID: req.RequestID, always: always, respond: respond}
 			m.mu.Unlock()
 			_ = m.store.SetSessionStatus(sessionID, "waiting_approval", "")
 			m.bus.Changed()
@@ -513,8 +518,18 @@ func (m *Manager) Release(sessionID string) error {
 	return nil
 }
 
-// Decide answers a pending approval.
-func (m *Manager) Decide(approvalID string, allow bool, message string) error {
+// AlwaysRules returns the rules "Always allow" would save for a pending approval.
+func (m *Manager) AlwaysRules(approvalID string) []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if p := m.approvals[approvalID]; p != nil {
+		return p.always
+	}
+	return nil
+}
+
+// Decide answers a pending approval. always also saves its allow rules.
+func (m *Manager) Decide(approvalID string, allow, always bool, message string) error {
 	m.mu.Lock()
 	p := m.approvals[approvalID]
 	delete(m.approvals, approvalID)
@@ -538,7 +553,7 @@ func (m *Manager) Decide(approvalID string, allow bool, message string) error {
 	if !stillWaiting {
 		_ = m.store.SetSessionStatus(p.sessionID, "running", "")
 	}
-	p.respond(claude.Decision{Allow: allow, Message: message})
+	p.respond(claude.Decision{Allow: allow, Always: allow && always, Message: message})
 	m.bus.Changed()
 	return nil
 }
@@ -570,7 +585,7 @@ func (m *Manager) Interrupt(sessionID string) error {
 	proc := l.proc
 	m.mu.Unlock()
 	for _, id := range pending {
-		_ = m.Decide(id, false, "Interrupted by the user.")
+		_ = m.Decide(id, false, false, "Interrupted by the user.")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

@@ -120,7 +120,7 @@ func TestApprovalFlowAndResumeAfterIdle(t *testing.T) {
 	if err := h.m.Send(s.ID, "again"); err != ErrBusy {
 		t.Fatalf("send while busy: %v", err)
 	}
-	h.m.Decide(ap[0].ID, true, "")
+	h.m.Decide(ap[0].ID, true, false, "")
 	h.until(func() bool { return h.status(s.ID) == "idle" })
 	got, _ := h.st.Session(s.ID)
 	if got.ClaudeSessionID != "claude-1" || got.CostUSD != 0.1 {
@@ -149,7 +149,7 @@ func TestApprovalFlowAndResumeAfterIdle(t *testing.T) {
 	}
 	h.until(func() bool { return h.status(s.ID) == "waiting_approval" })
 	ap, _ = h.st.PendingApprovals()
-	h.m.Decide(ap[0].ID, false, "no")
+	h.m.Decide(ap[0].ID, false, false, "no")
 	h.until(func() bool { return h.status(s.ID) == "idle" })
 	evs, _ := h.st.Events(s.ID, 0)
 	last := ""

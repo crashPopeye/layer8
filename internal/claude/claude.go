@@ -49,10 +49,44 @@ type PermissionRequest struct {
 	BlockedPath string         `json:"blocked_path"`
 	ToolUseID   string         `json:"tool_use_id"`
 	Reason      string         `json:"decision_reason"`
+	Suggestions []Suggestion   `json:"permission_suggestions"`
+}
+
+// Suggestion is a permission update the CLI offers with a request, like the
+// terminal's "Yes, and don't ask again". Only rule additions are modelled.
+type Suggestion struct {
+	Type        string `json:"type"` // addRules, setMode, addDirectories, …
+	Rules       []Rule `json:"rules,omitempty"`
+	Behavior    string `json:"behavior,omitempty"`
+	Destination string `json:"destination,omitempty"`
+}
+
+type Rule struct {
+	ToolName    string `json:"toolName"`
+	RuleContent string `json:"ruleContent,omitempty"`
+}
+
+func (r Rule) String() string {
+	if r.RuleContent == "" {
+		return r.ToolName
+	}
+	return r.ToolName + "(" + r.RuleContent + ")"
+}
+
+// AlwaysRules are the allow rules that "Always allow" would save.
+func (r PermissionRequest) AlwaysRules() []Rule {
+	var out []Rule
+	for _, s := range r.Suggestions {
+		if s.Type == "addRules" && s.Behavior == "allow" {
+			out = append(out, s.Rules...)
+		}
+	}
+	return out
 }
 
 type Decision struct {
 	Allow   bool
+	Always  bool   // also save the request's allow rules in the user's Claude Code settings
 	Message string // shown to the model when denied
 }
 
@@ -495,6 +529,10 @@ func (p *Process) handleControlRequest(id string, raw json.RawMessage) {
 				if d.Allow {
 					body["behavior"] = "allow"
 					body["updatedInput"] = req.Input
+					if rules := req.AlwaysRules(); d.Always && len(rules) > 0 {
+						// User settings, not the worktree's local settings, which go away with the task.
+						body["updatedPermissions"] = []Suggestion{{Type: "addRules", Rules: rules, Behavior: "allow", Destination: "userSettings"}}
+					}
 				} else {
 					msg := d.Message
 					if msg == "" {

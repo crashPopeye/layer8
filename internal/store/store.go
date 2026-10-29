@@ -121,6 +121,7 @@ type Approval struct {
 	Input     map[string]any `json:"input"`
 	Status    string         `json:"status"` // pending, allowed, denied, cancelled
 	CreatedAt string         `json:"createdAt"`
+	Always    []string       `json:"always,omitempty"` // not stored: rules "Always allow" saves, while pending
 }
 
 // Comment is a review note on an artifact or diff line, queued until sent to an agent.
