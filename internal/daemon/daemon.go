@@ -17,8 +17,10 @@ import (
 	"github.com/crashPopeye/layer8/internal/api"
 	"github.com/crashPopeye/layer8/internal/client"
 	"github.com/crashPopeye/layer8/internal/gitx"
+	"github.com/crashPopeye/layer8/internal/session"
 	"github.com/crashPopeye/layer8/internal/store"
 	"github.com/crashPopeye/layer8/internal/task"
+	"github.com/crashPopeye/layer8/plugin"
 	"github.com/crashPopeye/layer8/ui"
 )
 
@@ -37,10 +39,21 @@ func Run(ctx context.Context, home, addr string) error {
 	}
 	defer st.Close()
 
+	pluginDir, err := plugin.Materialize(filepath.Join(home, "plugin"))
+	if err != nil {
+		return err
+	}
+
 	hub := api.NewHub()
 	tasks := task.NewService(st, gitx.Git{}, home, hub.Notify)
+	sessions := session.NewManager(st, hub.Publish, session.Claude, session.Config{
+		PluginDir:     pluginDir,
+		ArtifactsRoot: filepath.Join(home, "artifacts"),
+		LogDir:        filepath.Join(home, "logs"),
+		Env:           sessionEnv(home, addr),
+	})
 	srv := &http.Server{
-		Handler:     api.New(st, hub, tasks, token, ui.FS),
+		Handler:     api.New(st, hub, tasks, sessions, token, ui.FS),
 		BaseContext: func(net.Listener) context.Context { return ctx },
 	}
 	ln, err := net.Listen("tcp", addr)
@@ -71,4 +84,13 @@ func ensureToken(path string) (string, error) {
 	}
 	token := hex.EncodeToString(raw)
 	return token, os.WriteFile(path, []byte(token+"\n"), 0o600)
+}
+
+// sessionEnv points every session's l8 at this daemon, with the l8 next to this binary first on PATH.
+func sessionEnv(home, addr string) []string {
+	env := []string{"LAYER8_HOME=" + home, "LAYER8_ADDR=" + addr}
+	if exe, err := os.Executable(); err == nil {
+		env = append(env, "PATH="+filepath.Dir(exe)+string(os.PathListSeparator)+os.Getenv("PATH"))
+	}
+	return env
 }

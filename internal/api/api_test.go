@@ -2,6 +2,7 @@ package api_test
 
 import (
 	"bufio"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -13,13 +14,33 @@ import (
 	"time"
 
 	"github.com/crashPopeye/layer8/internal/api"
+	"github.com/crashPopeye/layer8/internal/claude"
 	"github.com/crashPopeye/layer8/internal/client"
 	"github.com/crashPopeye/layer8/internal/gitx"
+	"github.com/crashPopeye/layer8/internal/session"
 	"github.com/crashPopeye/layer8/internal/store"
 	"github.com/crashPopeye/layer8/internal/task"
 )
 
 const token = "s3cret"
+
+// echoProc is a claude process that answers every message with its text and a result.
+type echoProc struct{ h claude.Handlers }
+
+func (p echoProc) Send(text string) error {
+	go func() {
+		p.h.OnMessage(claude.Message{Type: "system", Subtype: "init", SessionID: "claude-1"})
+		p.h.OnMessage(claude.Message{Type: "assistant", Message: &claude.APIMessage{Role: "assistant", Content: json.RawMessage(`[{"type":"text","text":"echo: ` + text + `"}]`)}})
+		p.h.OnMessage(claude.Message{Type: "result", TotalCostUSD: 0.5})
+	}()
+	return nil
+}
+func (echoProc) Interrupt() error               { return nil }
+func (echoProc) SetModel(string) error          { return nil }
+func (echoProc) SetPermissionMode(string) error { return nil }
+func (p echoProc) Close() error                 { p.h.OnExit(nil); return nil }
+
+func echoSpawner(o claude.Options, h claude.Handlers) (session.Proc, error) { return echoProc{h}, nil }
 
 func handler(t *testing.T) http.Handler {
 	t.Helper()
@@ -32,7 +53,7 @@ func handler(t *testing.T) http.Handler {
 	hub := api.NewHub()
 	tasks := task.NewService(st, gitx.Git{}, home, hub.Notify)
 	ui := fstest.MapFS{"index.html": {Data: []byte("<!doctype html>")}}
-	return api.New(st, hub, tasks, token, ui)
+	return api.New(st, hub, tasks, session.NewManager(st, hub.Publish, echoSpawner, session.Config{ArtifactsRoot: filepath.Join(home, "artifacts")}), token, ui)
 }
 
 func TestGuard(t *testing.T) {
@@ -178,6 +199,48 @@ func TestCreateTaskThroughClient(t *testing.T) {
 	}
 	if _, err := c.CreateTask(task.CreateInput{ProjectID: p.ID}); err == nil || !strings.Contains(err.Error(), "title is required") {
 		t.Fatalf("untitled task err = %v", err)
+	}
+}
+
+func TestSessionThroughClient(t *testing.T) {
+	srv := httptest.NewServer(handler(t))
+	t.Cleanup(srv.Close)
+	c := client.New(srv.URL, token)
+	p, err := c.AddProject(repo(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err := c.CreateTask(task.CreateInput{ProjectID: p.ID, Title: "Smoke task"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := c.StartSession(created.Slug, session.StartInput{Label: "research", Prompt: "hi"})
+	if err != nil || s.Label != "research" || s.TaskID != created.ID {
+		t.Fatalf("session = %+v, %v", s, err)
+	}
+
+	var events []store.Event
+	deadline := time.Now().Add(5 * time.Second)
+	for len(events) < 3 && time.Now().Before(deadline) {
+		events, _ = c.Events(s.ID, 0)
+		time.Sleep(10 * time.Millisecond)
+	}
+	var kinds []string
+	for _, e := range events {
+		kinds = append(kinds, e.Kind)
+	}
+	if strings.Join(kinds, ",") != "user,text,result" || !strings.Contains(string(events[1].Body), "echo: hi") {
+		t.Fatalf("events = %v", kinds)
+	}
+	listed, err := c.Sessions(created.ID)
+	if err != nil || len(listed) != 1 || listed[0].Status != "ready_for_input" || listed[0].CostUSD != 0.5 {
+		t.Fatalf("sessions = %+v, %v", listed, err)
+	}
+	if err := c.Stop(s.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Decide("nope", session.Decision{Decision: "allow"}); err == nil {
+		t.Fatal("deciding an unknown approval succeeded")
 	}
 }
 

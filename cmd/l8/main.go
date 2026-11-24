@@ -2,6 +2,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/crashPopeye/layer8/internal/client"
+	"github.com/crashPopeye/layer8/internal/session"
 	"github.com/crashPopeye/layer8/internal/store"
 	"github.com/crashPopeye/layer8/internal/task"
 )
@@ -21,21 +23,33 @@ const usage = `usage:
   l8 project list
   l8 task create --title T [--project P] [--workflow freeform] [--prompt P] [--adopt DIR] [--autonomous]
   l8 task list [--project P] [--status active|done|archived]
-  l8 task show <id|slug>
-  l8 task done <id|slug>
-  l8 task archive <id|slug>
+  l8 task show <id|slug|current>
+  l8 task done <id|slug|current>
+  l8 task archive <id|slug|current>
+  l8 session start --task <id|current> [--label L] --prompt P [--model M] [--effort E] [--permission-mode default|acceptEdits|auto|bypassPermissions]
+  l8 session list --task <id|current>
+  l8 session read <id|current> [--last 20]
+  l8 session send <id|current> <text>
+  l8 session stop <id|current>
+
+"current" is the task or session this command runs in (L8_TASK_ID, L8_SESSION_ID).
 `
 
 type command func(c *client.Client, out io.Writer, args []string) error
 
 var commands = map[string]command{
-	"project add":  projectAdd,
-	"project list": projectList,
-	"task create":  taskCreate,
-	"task list":    taskList,
-	"task show":    taskShow,
-	"task done":    taskStatus("done"),
-	"task archive": taskStatus("archived"),
+	"project add":   projectAdd,
+	"project list":  projectList,
+	"task create":   taskCreate,
+	"task list":     taskList,
+	"task show":     taskShow,
+	"task done":     taskStatus("done"),
+	"task archive":  taskStatus("archived"),
+	"session start": sessionStart,
+	"session list":  sessionList,
+	"session read":  sessionRead,
+	"session send":  sessionSend,
+	"session stop":  sessionStop,
 }
 
 func main() {
@@ -141,7 +155,11 @@ func taskShow(c *client.Client, out io.Writer, args []string) error {
 	if len(args) != 1 {
 		return errors.New("usage: l8 task show <id|slug>")
 	}
-	t, err := c.Task(args[0])
+	ref, err := current(args[0], "L8_TASK_ID")
+	if err != nil {
+		return err
+	}
+	t, err := c.Task(ref)
 	if err != nil {
 		return err
 	}
@@ -164,7 +182,11 @@ func taskStatus(status string) command {
 		if len(args) != 1 {
 			return errors.New("usage: l8 task done|archive <id|slug>")
 		}
-		t, err := c.SetTaskStatus(args[0], status)
+		ref, err := current(args[0], "L8_TASK_ID")
+		if err != nil {
+			return err
+		}
+		t, err := c.SetTaskStatus(ref, status)
 		if err != nil {
 			return err
 		}
@@ -192,4 +214,149 @@ func findProject(c *client.Client, ref string) (store.Project, error) {
 		}
 	}
 	return store.Project{}, fmt.Errorf("no project %q", ref)
+}
+
+func sessionStart(c *client.Client, out io.Writer, args []string) error {
+	fs := flag.NewFlagSet("session start", flag.ContinueOnError)
+	taskRef := fs.String("task", "current", "task id, slug or current")
+	var in session.StartInput
+	fs.StringVar(&in.Label, "label", "session", "session label, e.g. a phase name")
+	fs.StringVar(&in.Prompt, "prompt", "", "first message")
+	fs.StringVar(&in.Model, "model", "", "model (default: the user's Claude Code default)")
+	fs.StringVar(&in.Effort, "effort", "", "effort level")
+	fs.StringVar(&in.PermissionMode, "permission-mode", "", strings.Join(session.PermissionModes, "|"))
+	if _, err := parse(fs, args); err != nil {
+		return err
+	}
+	ref, err := current(*taskRef, "L8_TASK_ID")
+	if err != nil {
+		return err
+	}
+	s, err := c.StartSession(ref, in)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "started %s (%s), %s\n", s.ID, s.Label, s.Status)
+	return nil
+}
+
+func sessionList(c *client.Client, out io.Writer, args []string) error {
+	fs := flag.NewFlagSet("session list", flag.ContinueOnError)
+	taskRef := fs.String("task", "current", "task id, slug or current")
+	if _, err := parse(fs, args); err != nil {
+		return err
+	}
+	ref, err := current(*taskRef, "L8_TASK_ID")
+	if err != nil {
+		return err
+	}
+	sessions, err := c.Sessions(ref)
+	if err != nil {
+		return err
+	}
+	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	for _, s := range sessions {
+		status := s.Status
+		if s.Queued > 0 {
+			status += fmt.Sprintf(" (+%d queued)", s.Queued)
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t$%.2f\n", s.ID, s.Label, status, s.CostUSD)
+	}
+	return w.Flush()
+}
+
+func sessionRead(c *client.Client, out io.Writer, args []string) error {
+	fs := flag.NewFlagSet("session read", flag.ContinueOnError)
+	last := fs.Int("last", 20, "number of messages")
+	rest, err := parse(fs, args)
+	if err != nil {
+		return err
+	}
+	id, err := sessionArg(rest)
+	if err != nil {
+		return err
+	}
+	events, err := c.Events(id, 0)
+	if err != nil {
+		return err
+	}
+	var messages []string
+	for _, e := range events {
+		var body struct{ Text string }
+		json.Unmarshal(e.Body, &body)
+		switch {
+		case e.Kind == "user":
+			messages = append(messages, "> "+body.Text)
+		case e.Kind == "text" && e.ParentToolUseID == "":
+			messages = append(messages, body.Text)
+		}
+	}
+	messages = messages[max(0, len(messages)-*last):]
+	fmt.Fprintln(out, strings.Join(messages, "\n\n"))
+	return nil
+}
+
+func sessionSend(c *client.Client, out io.Writer, args []string) error {
+	if len(args) < 2 {
+		return errors.New("usage: l8 session send <id|current> <text>")
+	}
+	id, err := current(args[0], "L8_SESSION_ID")
+	if err != nil {
+		return err
+	}
+	queued, err := c.Send(id, strings.Join(args[1:], " "))
+	if err != nil {
+		return err
+	}
+	if queued {
+		fmt.Fprintln(out, "queued; it is sent when the current turn ends")
+	} else {
+		fmt.Fprintln(out, "sent")
+	}
+	return nil
+}
+
+func sessionStop(c *client.Client, out io.Writer, args []string) error {
+	id, err := sessionArg(args)
+	if err != nil {
+		return err
+	}
+	if err := c.Stop(id); err != nil {
+		return err
+	}
+	fmt.Fprintln(out, "stopped", id)
+	return nil
+}
+
+func sessionArg(args []string) (string, error) {
+	if len(args) != 1 {
+		return "", errors.New("expected one session id (or current)")
+	}
+	return current(args[0], "L8_SESSION_ID")
+}
+
+// current resolves the ref "current" from the environment variable env.
+func current(ref, env string) (string, error) {
+	if ref != "current" {
+		return ref, nil
+	}
+	if v := os.Getenv(env); v != "" {
+		return v, nil
+	}
+	return "", fmt.Errorf("\"current\" only works inside a layer8 session (%s is not set)", env)
+}
+
+// parse parses flags that may come before or after positional arguments, and returns the positionals.
+func parse(fs *flag.FlagSet, args []string) ([]string, error) {
+	var positional []string
+	for {
+		if err := fs.Parse(args); err != nil {
+			return nil, err
+		}
+		if fs.NArg() == 0 {
+			return positional, nil
+		}
+		positional = append(positional, fs.Arg(0))
+		args = fs.Args()[1:]
+	}
 }

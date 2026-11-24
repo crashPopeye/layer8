@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/crashPopeye/layer8/internal/session"
 	"github.com/crashPopeye/layer8/internal/store"
 	"github.com/crashPopeye/layer8/internal/task"
 )
@@ -127,4 +128,40 @@ func (c *Client) CreateTask(in task.CreateInput) (store.Task, error) {
 func (c *Client) SetTaskStatus(idOrSlug, status string) (store.Task, error) {
 	var t store.Task
 	return t, c.do(http.MethodPut, "/api/tasks/"+url.PathEscape(idOrSlug), map[string]string{"status": status}, &t)
+}
+
+// Sessions lists a task's sessions.
+func (c *Client) Sessions(taskRef string) ([]session.View, error) {
+	var ss []session.View
+	return ss, c.do(http.MethodGet, "/api/tasks/"+url.PathEscape(taskRef)+"/sessions", nil, &ss)
+}
+
+func (c *Client) StartSession(taskRef string, in session.StartInput) (store.Session, error) {
+	var s store.Session
+	return s, c.do(http.MethodPost, "/api/tasks/"+url.PathEscape(taskRef)+"/sessions", in, &s)
+}
+
+// Events returns a session's events after seq.
+func (c *Client) Events(sessionID string, after int) ([]store.Event, error) {
+	var es []store.Event
+	return es, c.do(http.MethodGet, fmt.Sprintf("/api/sessions/%s/events?after=%d", url.PathEscape(sessionID), after), nil, &es)
+}
+
+// Send messages a session and reports whether the message was queued behind a running turn.
+func (c *Client) Send(sessionID, text string) (bool, error) {
+	var r struct{ Queued bool }
+	return r.Queued, c.do(http.MethodPost, "/api/sessions/"+url.PathEscape(sessionID)+"/messages", map[string]string{"text": text}, &r)
+}
+
+func (c *Client) Interrupt(sessionID string) error {
+	return c.do(http.MethodPost, "/api/sessions/"+url.PathEscape(sessionID)+"/interrupt", nil, nil)
+}
+
+func (c *Client) Stop(sessionID string) error {
+	return c.do(http.MethodPost, "/api/sessions/"+url.PathEscape(sessionID)+"/stop", nil, nil)
+}
+
+// Decide answers an approval with allow, always or deny.
+func (c *Client) Decide(approvalID string, d session.Decision) error {
+	return c.do(http.MethodPost, "/api/approvals/"+url.PathEscape(approvalID), d, nil)
 }

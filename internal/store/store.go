@@ -22,6 +22,15 @@ var migrations = []string{
 	  slug TEXT UNIQUE, title TEXT, workflow TEXT, phase TEXT, status TEXT,
 	  branch TEXT, base_ref TEXT, worktree TEXT, ticket TEXT, ticket_url TEXT,
 	  auto_advance INT DEFAULT 0, autonomous INT DEFAULT 0, pr_number INT, pr_url TEXT, created_at INT);`,
+	`CREATE TABLE sessions (id TEXT PRIMARY KEY, task_id TEXT REFERENCES tasks, label TEXT, phase TEXT,
+	  claude_session_id TEXT, model TEXT, effort TEXT, permission_mode TEXT, status TEXT,
+	  in_turn INT DEFAULT 0, cost_usd REAL DEFAULT 0, context_tokens INT DEFAULT 0, forked_from TEXT, created_at INT);
+	CREATE INDEX sessions_task ON sessions (task_id);
+	CREATE TABLE events (session_id TEXT, seq INT, kind TEXT, parent_tool_use_id TEXT, body TEXT,
+	  created_at INT, PRIMARY KEY (session_id, seq));
+	CREATE TABLE approvals (id TEXT PRIMARY KEY, session_id TEXT, request_id TEXT, tool_use_id TEXT,
+	  tool_name TEXT, input TEXT, suggestions TEXT, status TEXT, created_at INT);
+	CREATE INDEX approvals_session ON approvals (session_id);`,
 }
 
 type Store struct{ db *sql.DB }
