@@ -1,8 +1,10 @@
-.PHONY: check build dev
+.PHONY: check build dev app
 
 LAYER8_HOME ?= $(HOME)/.layer8-dev
 LAYER8_ADDR ?= 127.0.0.1:7879
-export LAYER8_HOME LAYER8_ADDR
+APP_DEST ?= /Applications
+MACOSX_DEPLOYMENT_TARGET ?= 11.0
+export LAYER8_HOME LAYER8_ADDR MACOSX_DEPLOYMENT_TARGET
 
 # The only CI: formatting, vet and the race-enabled test suite.
 check:
@@ -23,3 +25,7 @@ dev: build
 	echo "CLI:       LAYER8_HOME=$(LAYER8_HOME) LAYER8_ADDR=$(LAYER8_ADDR) build/out/l8 task list"; \
 	(open "$$url" 2>/dev/null || xdg-open "$$url" 2>/dev/null || true); \
 	wait $$pid
+
+# layer8.app, ad-hoc signed, installed to APP_DEST (empty: build only, in build/out).
+app:
+	build/app.sh $(APP_DEST)

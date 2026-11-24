@@ -96,3 +96,37 @@ func TestRoundTrip(t *testing.T) {
 		t.Fatalf("missing task err = %v", err)
 	}
 }
+
+func TestLegacyDatabaseMovesAside(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "layer8.db")
+	old, err := open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := old.Exec(`CREATE TABLE slices (id TEXT PRIMARY KEY)`); err != nil {
+		t.Fatal(err)
+	}
+	old.Close()
+
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if v, _ := schema(t, s); v != len(migrations) {
+		t.Fatalf("user_version = %d after moving the legacy db aside", v)
+	}
+	moved, _ := filepath.Glob(filepath.Join(dir, "legacy-*.db"))
+	if len(moved) != 1 {
+		t.Fatalf("legacy files = %v", moved)
+	}
+	legacy, err := open(moved[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer legacy.Close()
+	if _, err := legacy.Exec(`SELECT id FROM slices`); err != nil {
+		t.Fatalf("legacy db lost its table: %v", err)
+	}
+}

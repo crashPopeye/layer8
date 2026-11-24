@@ -56,6 +56,8 @@ func New(st *store.Store, hub *Hub, tasks *task.Service, sessions *session.Manag
 	mux.HandleFunc("POST /api/sessions/{id}/interrupt", s.interrupt)
 	mux.HandleFunc("POST /api/sessions/{id}/stop", s.stop)
 	mux.HandleFunc("POST /api/approvals/{id}", s.decide)
+	mux.HandleFunc("GET /api/attention", s.attention)
+	mux.HandleFunc("POST /api/pick-folder", s.pickFolder)
 	return s.guard(mux)
 }
 
@@ -218,6 +220,16 @@ func (s *server) decide(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	reply(w, map[string]bool{"ok": true}, s.sessions.Decide(r.Context(), r.PathValue("id"), in))
+}
+
+func (s *server) attention(w http.ResponseWriter, r *http.Request) {
+	waiting, err := s.store.SessionsWithStatus("waiting_approval")
+	reply(w, map[string]int{"waiting": len(waiting)}, err)
+}
+
+func (s *server) pickFolder(w http.ResponseWriter, r *http.Request) {
+	path, err := pickFolder(r.Context())
+	reply(w, map[string]string{"path": path}, err)
 }
 
 func decode(w http.ResponseWriter, r *http.Request, v any) bool {

@@ -2,6 +2,7 @@ package api_test
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -267,4 +268,42 @@ func subscribe(t *testing.T, base string) <-chan string {
 		}
 	}()
 	return lines
+}
+
+func TestSubscribeAndAttention(t *testing.T) {
+	srv := httptest.NewServer(handler(t))
+	t.Cleanup(srv.Close)
+	c := client.New(srv.URL, token)
+	if n, err := c.Attention(); err != nil || n != 0 {
+		t.Fatalf("attention = %d, %v", n, err)
+	}
+	p, err := c.AddProject(repo(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err := c.CreateTask(task.CreateInput{ProjectID: p.ID, Title: "Smoke task"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	events := make(chan client.Event, 64)
+	go c.Subscribe(ctx, func(e client.Event) { events <- e })
+	deadline := time.After(5 * time.Second)
+	for {
+		if _, err := c.SetTaskStatus(created.ID, "active"); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case e := <-events:
+			if e.Kind != "task" || e.ID != created.ID {
+				t.Fatalf("event = %+v", e)
+			}
+			return
+		case <-deadline:
+			t.Fatal("no event through Subscribe")
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
 }

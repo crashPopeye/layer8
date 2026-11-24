@@ -443,5 +443,5 @@ func (m *Manager) save(s store.Session) error {
 }
 
 func (m *Manager) notify(s store.Session, kind string) {
-	m.publish(map[string]any{"kind": kind, "id": s.ID, "taskId": s.TaskID, "status": s.Status})
+	m.publish(map[string]any{"kind": kind, "id": s.ID, "taskId": s.TaskID, "status": s.Status, "label": s.Label})
 }

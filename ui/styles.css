@@ -41,6 +41,7 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--terminal-ac
 aside { border-right: 1px solid var(--terminal-border); padding: 10px; overflow: auto; display: flex; flex-direction: column; gap: 2px; }
 aside .head { display: flex; justify-content: space-between; align-items: center; }
 aside .add { margin: 6px 0; display: flex; gap: 4px; }
+aside .add input { flex: 1; min-width: 0; }
 .proj { margin: 10px 0 2px; display: flex; gap: 6px; align-items: center; }
 .proj b { white-space: nowrap; }
 .proj .tag { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

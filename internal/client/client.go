@@ -2,7 +2,9 @@
 package client
 
 import (
+	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -164,4 +166,52 @@ func (c *Client) Stop(sessionID string) error {
 // Decide answers an approval with allow, always or deny.
 func (c *Client) Decide(approvalID string, d session.Decision) error {
 	return c.do(http.MethodPost, "/api/approvals/"+url.PathEscape(approvalID), d, nil)
+}
+
+// Attention returns how many sessions wait for an approval.
+func (c *Client) Attention() (int, error) {
+	var r struct{ Waiting int }
+	return r.Waiting, c.do(http.MethodGet, "/api/attention", nil, &r)
+}
+
+// Event is one message of the daemon's SSE stream.
+type Event struct {
+	Kind   string `json:"kind"`
+	ID     string `json:"id"`
+	TaskID string `json:"taskId"`
+	Status string `json:"status"`
+	Label  string `json:"label"`
+}
+
+// Subscribe calls fn with every event the daemon publishes until ctx is done or the stream ends.
+func (c *Client) Subscribe(ctx context.Context, fn func(Event)) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+"/api/events", nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return fmt.Errorf("GET /api/events: %s", res.Status)
+	}
+	lines := bufio.NewScanner(res.Body)
+	lines.Buffer(make([]byte, 64*1024), 4*1024*1024)
+	for lines.Scan() {
+		data, ok := strings.CutPrefix(lines.Text(), "data: ")
+		if !ok {
+			continue
+		}
+		var e Event
+		if json.Unmarshal([]byte(data), &e) == nil {
+			fn(e)
+		}
+	}
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	return lines.Err()
 }

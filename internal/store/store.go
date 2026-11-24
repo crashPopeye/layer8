@@ -5,7 +5,10 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
@@ -36,12 +39,25 @@ var migrations = []string{
 type Store struct{ db *sql.DB }
 
 // Open opens (or creates) the database at path and applies pending migrations.
+// A database from the old layer8, which has tables but no user_version, is
+// first moved aside to legacy-<date>.db next to it.
 func Open(path string) (*Store, error) {
-	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)")
+	db, err := open(path)
 	if err != nil {
 		return nil, err
 	}
-	db.SetMaxOpenConns(1)
+	if legacy, err := isLegacy(db); err != nil || legacy {
+		db.Close()
+		if err != nil {
+			return nil, err
+		}
+		if err := moveAside(path); err != nil {
+			return nil, err
+		}
+		if db, err = open(path); err != nil {
+			return nil, err
+		}
+	}
 	if err := migrate(db); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("migrate %s: %w", path, err)
@@ -50,6 +66,42 @@ func Open(path string) (*Store, error) {
 }
 
 func (s *Store) Close() error { return s.db.Close() }
+
+func open(path string) (*sql.DB, error) {
+	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)")
+	if err != nil {
+		return nil, err
+	}
+	db.SetMaxOpenConns(1)
+	return db, nil
+}
+
+// isLegacy reports whether db holds tables that no migration of ours created.
+func isLegacy(db *sql.DB) (bool, error) {
+	var version, tables int
+	if err := db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
+		return false, err
+	}
+	if version > 0 {
+		return false, nil
+	}
+	err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table'`).Scan(&tables)
+	return tables > 0, err
+}
+
+// moveAside renames the database at path and its WAL files to legacy-<date>.db.
+func moveAside(path string) error {
+	dest := filepath.Join(filepath.Dir(path), "legacy-"+time.Now().Format("2006-01-02")+".db")
+	if _, err := os.Stat(dest); err == nil {
+		dest = filepath.Join(filepath.Dir(path), "legacy-"+time.Now().Format("2006-01-02-150405")+".db")
+	}
+	for _, suffix := range []string{"", "-wal", "-shm"} {
+		if err := os.Rename(path+suffix, dest+suffix); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	return nil
+}
 
 func migrate(db *sql.DB) error {
 	var version int

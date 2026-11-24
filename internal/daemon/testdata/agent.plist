@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>dev.layer8.daemon</string>
+  <key>ProgramArguments</key>
+  <array><string>/Applications/layer8.app/Contents/MacOS/layer8</string><string>daemon</string></array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>LAYER8_HOME</key><string>/Users/alex/.layer8</string>
+    <key>LAYER8_ADDR</key><string>127.0.0.1:7878</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>5</integer>
+  <key>ProcessType</key><string>Interactive</string>
+  <key>StandardOutPath</key><string>/Users/alex/.layer8/logs/daemon.log</string>
+  <key>StandardErrorPath</key><string>/Users/alex/.layer8/logs/daemon.log</string>
+</dict>
+</plist>

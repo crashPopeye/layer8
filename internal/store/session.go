@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 )
 
@@ -90,7 +91,21 @@ func (s *Store) Session(id string) (Session, error) {
 
 // Sessions returns a task's sessions, oldest first.
 func (s *Store) Sessions(taskID string) ([]Session, error) {
-	rows, err := s.db.Query(`SELECT `+sessionCols+` FROM sessions WHERE task_id = ? ORDER BY created_at, id`, taskID)
+	return s.querySessions(`SELECT `+sessionCols+` FROM sessions WHERE task_id = ? ORDER BY created_at, id`, taskID)
+}
+
+// SessionsWithStatus returns every session in one of statuses, oldest first.
+func (s *Store) SessionsWithStatus(statuses ...string) ([]Session, error) {
+	args := make([]any, len(statuses))
+	for i, st := range statuses {
+		args[i] = st
+	}
+	marks := strings.TrimSuffix(strings.Repeat("?,", len(statuses)), ",")
+	return s.querySessions(`SELECT `+sessionCols+` FROM sessions WHERE status IN (`+marks+`) ORDER BY created_at, id`, args...)
+}
+
+func (s *Store) querySessions(query string, args ...any) ([]Session, error) {
+	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}

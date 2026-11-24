@@ -6,17 +6,29 @@ export const home = (p) => (p || "").replace(/^\/Users\/[^/]+/, "~");
 function AddProject({ onDone }) {
   const [path, setPath] = useState("");
   const [error, setError] = useState("");
-  const submit = async (e) => {
-    e.preventDefault();
+  const add = async (p) => {
     try {
-      await post("/api/projects", { path });
+      await post("/api/projects", { path: p });
       onDone();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+  const submit = (e) => {
+    e.preventDefault();
+    add(path);
+  };
+  const choose = async () => {
+    try {
+      const picked = await post("/api/pick-folder");
+      if (picked.path) add(picked.path);
     } catch (err) {
       setError(err.message);
     }
   };
   return html`<form class="add" onSubmit=${submit}>
       <input class="mono" autofocus placeholder="~/Work/repo" value=${path} onInput=${(e) => setPath(e.target.value)} onKeyDown=${(e) => e.key === "Escape" && onDone()} />
+      <button type="button" onClick=${choose}>Choose…</button>
       <button class="primary" type="submit">Add</button>
     </form>
     ${error && html`<div class="err">${error}</div>`}`;

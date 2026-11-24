@@ -26,6 +26,7 @@ import (
 
 // Run serves the API on addr with all state under home until ctx is done.
 func Run(ctx context.Context, home, addr string) error {
+	fixPath()
 	if err := os.MkdirAll(home, 0o700); err != nil {
 		return err
 	}
@@ -59,6 +60,9 @@ func Run(ctx context.Context, home, addr string) error {
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return err
+	}
+	if err := sessions.Recover(ctx); err != nil {
+		log.Printf("recover sessions: %v", err)
 	}
 	go func() {
 		<-ctx.Done()
