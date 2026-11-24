@@ -307,3 +307,142 @@ func TestSubscribeAndAttention(t *testing.T) {
 		}
 	}
 }
+
+func TestArtifactsThroughClient(t *testing.T) {
+	srv := httptest.NewServer(handler(t))
+	t.Cleanup(srv.Close)
+	c := client.New(srv.URL, token)
+	p, err := c.AddProject(repo(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err := c.CreateTask(task.CreateInput{ProjectID: p.ID, Title: "Smoke task"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	prd := "---\ntype: design-prd\n---\n# PRD\n\n```task-artifact\nmockup.html\n```\n"
+	if _, err := c.WriteArtifact(created.Slug, "03-prd.md", strings.NewReader(prd)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.WriteArtifact(created.Slug, "mockup.html", strings.NewReader("<h1>mockup</h1>")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.WriteArtifact(created.Slug, "../escape.md", strings.NewReader("x")); err == nil {
+		t.Fatal("wrote outside the artifacts folder")
+	}
+	if got, err := c.ReadArtifact(created.ID, "03-prd.md"); err != nil || string(got) != prd {
+		t.Fatalf("read = %q, %v", got, err)
+	}
+
+	var listed []struct{ Path, Type, URL string }
+	get(t, srv.URL+"/api/tasks/"+created.ID+"/artifacts", &listed)
+	types := map[string]string{}
+	var mockupURL string
+	for _, a := range listed {
+		types[a.Path] = a.Type
+		if a.Path == "mockup.html" {
+			mockupURL = a.URL
+		}
+	}
+	if types["03-prd.md"] != "design-prd" || types["mockup.html"] != "html" || types["task.md"] != "task" {
+		t.Fatalf("artifacts = %+v", listed)
+	}
+
+	var rendered struct{ HTML string }
+	get(t, srv.URL+"/api/tasks/"+created.Slug+"/render/03-prd.md", &rendered)
+	if !strings.Contains(rendered.HTML, `<h1 data-line="4">PRD</h1>`) || !strings.Contains(rendered.HTML, `src="`+mockupURL+`"`) {
+		t.Fatalf("rendered = %s (mockup at %s)", rendered.HTML, mockupURL)
+	}
+
+	res := fetch(t, srv.URL+mockupURL, "null")
+	if res.StatusCode != http.StatusOK || !strings.Contains(res.Header.Get("Content-Security-Policy"), "sandbox allow-scripts") ||
+		strings.Contains(res.Header.Get("Content-Security-Policy"), "allow-same-origin") || !strings.HasPrefix(res.Header.Get("Content-Type"), "text/html") {
+		t.Fatalf("shared artifact: %d %v", res.StatusCode, res.Header)
+	}
+	forged := strings.Replace(mockupURL, "/"+created.ID+"/", "/"+created.ID+"/0000/", 1)
+	if res := fetch(t, srv.URL+forged, ""); res.StatusCode != http.StatusNotFound {
+		t.Fatalf("forged key: %d", res.StatusCode)
+	}
+	if res := fetch(t, srv.URL+"/api/tasks/"+created.ID+"/artifacts/mockup.html", "null"); res.StatusCode != http.StatusForbidden {
+		t.Fatalf("API from a sandboxed origin: %d", res.StatusCode)
+	}
+}
+
+func TestCommentsReachTheSession(t *testing.T) {
+	srv := httptest.NewServer(handler(t))
+	t.Cleanup(srv.Close)
+	c := client.New(srv.URL, token)
+	p, err := c.AddProject(repo(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err := c.CreateTask(task.CreateInput{ProjectID: p.ID, Title: "Smoke task"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := c.StartSession(created.ID, session.StartInput{Label: "prd"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var comment store.Comment
+	post(t, srv.URL+"/api/tasks/"+created.ID+"/comments", task.CommentInput{Path: "03-prd.md", Line: 12, Quote: "Sessions survive restarts.", Body: "How long does a resume take?"}, &comment)
+	var sent struct{ Sent int }
+	post(t, srv.URL+"/api/tasks/"+created.ID+"/comments/send", task.SendInput{SessionID: s.ID, Resolve: true}, &sent)
+	if sent.Sent != 1 {
+		t.Fatalf("sent = %d", sent.Sent)
+	}
+	events, err := c.Events(s.ID, 0)
+	if err != nil || len(events) == 0 || events[0].Kind != "user" || !strings.Contains(string(events[0].Body), "03-prd.md:12") {
+		t.Fatalf("events = %+v, %v", events, err)
+	}
+	var comments []store.Comment
+	get(t, srv.URL+"/api/tasks/"+created.ID+"/comments", &comments)
+	if len(comments) != 1 || comments[0].Status != "resolved" {
+		t.Fatalf("comments = %+v", comments)
+	}
+}
+
+func fetch(t *testing.T, u, origin string) *http.Response {
+	t.Helper()
+	req, _ := http.NewRequest(http.MethodGet, u, nil)
+	if origin != "" {
+		req.Header.Set("Origin", origin)
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	return res
+}
+
+func get(t *testing.T, u string, out any) {
+	t.Helper()
+	call(t, http.MethodGet, u, nil, out)
+}
+
+func post(t *testing.T, u string, in, out any) {
+	t.Helper()
+	call(t, http.MethodPost, u, in, out)
+}
+
+func call(t *testing.T, method, u string, in, out any) {
+	t.Helper()
+	var body strings.Builder
+	if in != nil {
+		json.NewEncoder(&body).Encode(in)
+	}
+	req, _ := http.NewRequest(method, u, strings.NewReader(body.String()))
+	req.Header.Set("Authorization", "Bearer "+token)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("%s %s: %s", method, u, res.Status)
+	}
+	if err := json.NewDecoder(res.Body).Decode(out); err != nil {
+		t.Fatal(err)
+	}
+}

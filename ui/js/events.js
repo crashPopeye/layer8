@@ -1,4 +1,5 @@
-import { useEffect, useRef } from "/vendor/preact-htm.js";
+import { useEffect, useRef, useState, useCallback } from "/vendor/preact-htm.js";
+import { get } from "./api.js";
 
 const listeners = new Set();
 let source = null;
@@ -22,4 +23,16 @@ export function useEvents(onEvent) {
     if (!source) connect();
     return () => listeners.delete(fn);
   }, []);
+}
+
+/** useSessions lists a task's sessions and refetches when one of them changes. */
+export function useSessions(taskId) {
+  const [sessions, setSessions] = useState([]);
+  const load = useCallback(() => get(`/api/tasks/${taskId}/sessions`).then(setSessions, () => {}), [taskId]);
+  useEffect(() => {
+    setSessions([]);
+    load();
+  }, [load]);
+  useEvents((e) => (e.kind === "open" || (e.kind === "session" && e.taskId === taskId)) && load());
+  return sessions;
 }

@@ -34,6 +34,9 @@ var migrations = []string{
 	CREATE TABLE approvals (id TEXT PRIMARY KEY, session_id TEXT, request_id TEXT, tool_use_id TEXT,
 	  tool_name TEXT, input TEXT, suggestions TEXT, status TEXT, created_at INT);
 	CREATE INDEX approvals_session ON approvals (session_id);`,
+	`CREATE TABLE comments (id TEXT PRIMARY KEY, task_id TEXT REFERENCES tasks, target TEXT, path TEXT, line INT,
+	  quote TEXT, body TEXT, status TEXT, created_at INT);
+	CREATE INDEX comments_task ON comments (task_id);`,
 }
 
 type Store struct{ db *sql.DB }

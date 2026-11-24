@@ -1,6 +1,6 @@
 ---
 name: orchestrate
-description: Drive the layer8 app from a session with the l8 CLI - create and list tasks, start, read, message and stop sessions. Use when the user asks to start a task or a session, check on another session, or hand work to a parallel agent.
+description: Drive the layer8 app from a session with the l8 CLI - create and list tasks, start, read, message and stop sessions, read and write another task's artifacts. Use when the user asks to start a task or a session, check on another session, hand work to a parallel agent, or reach another task's artifacts.
 ---
 
 # Drive layer8 with `l8`
@@ -35,6 +35,26 @@ A session is one Claude Code conversation running in its task's worktree.
 | `l8 session stop <id>` | Close a session's process |
 
 Statuses: `starting`, `running`, `waiting_approval` (a tool call needs the user), `ready_for_input`, `stopped`, `failed`.
+
+## Artifacts
+
+The artifacts folder of this task is `.layer8/task/`; read and write it directly. Use `l8 artifact` to reach another task's folder, for example to report back to a parent task. The app's Artifacts panel lists every file, newest first, labelled by its frontmatter `type`, and refreshes as you write.
+
+| Command | Effect |
+|---|---|
+| `l8 artifact list [--task <id\|current\|parent>]` | Files of a task's artifacts folder: path, type, modified |
+| `l8 artifact read [--task …] <path>` | Print an artifact |
+| `l8 artifact write [--task …] <path> < file` | Create or replace an artifact from stdin |
+
+`--task` defaults to `current`; `parent` is this task's parent task.
+
+To show a file inline in a Markdown artifact or in your reply, use a `task-artifact` fence with its path in the artifacts folder. HTML renders in a sandboxed iframe, images render as images:
+
+````markdown
+```task-artifact
+mockup-workspace.html
+```
+````
 
 ## Example
 

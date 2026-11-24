@@ -54,6 +54,10 @@ build/out/l8 task show smoke-task
 build/out/l8 session start --task smoke-task --label research --prompt "Run go version"
 build/out/l8 session list --task smoke-task
 build/out/l8 session read <session-id> --last 5
+build/out/l8 artifact write --task smoke-task notes.md < notes.md
+build/out/l8 artifact list --task smoke-task
 ```
+
+The task's right panel lists its artifacts, newest first, and refreshes as agents write them. Markdown renders with GFM, highlighted code and Mermaid; a ```` ```task-artifact page.html ```` fence embeds another artifact, and HTML runs in an iframe sandboxed without same-origin access. Select text to comment on a line, then send the comments to a session of the task.
 
 GitHub Actions run only on manual dispatch, so pushing a branch costs nothing.

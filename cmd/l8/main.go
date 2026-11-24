@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/crashPopeye/layer8/internal/client"
 	"github.com/crashPopeye/layer8/internal/session"
@@ -31,25 +32,32 @@ const usage = `usage:
   l8 session read <id|current> [--last 20]
   l8 session send <id|current> <text>
   l8 session stop <id|current>
+  l8 artifact list [--task <id|current|parent>]
+  l8 artifact read [--task <id|current|parent>] <path>
+  l8 artifact write [--task <id|current|parent>] <path> < content
 
-"current" is the task or session this command runs in (L8_TASK_ID, L8_SESSION_ID).
+"current" is the task or session this command runs in (L8_TASK_ID, L8_SESSION_ID);
+"parent" is the current task's parent task.
 `
 
 type command func(c *client.Client, out io.Writer, args []string) error
 
 var commands = map[string]command{
-	"project add":   projectAdd,
-	"project list":  projectList,
-	"task create":   taskCreate,
-	"task list":     taskList,
-	"task show":     taskShow,
-	"task done":     taskStatus("done"),
-	"task archive":  taskStatus("archived"),
-	"session start": sessionStart,
-	"session list":  sessionList,
-	"session read":  sessionRead,
-	"session send":  sessionSend,
-	"session stop":  sessionStop,
+	"project add":    projectAdd,
+	"project list":   projectList,
+	"task create":    taskCreate,
+	"task list":      taskList,
+	"task show":      taskShow,
+	"task done":      taskStatus("done"),
+	"task archive":   taskStatus("archived"),
+	"session start":  sessionStart,
+	"session list":   sessionList,
+	"session read":   sessionRead,
+	"session send":   sessionSend,
+	"session stop":   sessionStop,
+	"artifact list":  artifactList,
+	"artifact read":  artifactRead,
+	"artifact write": artifactWrite,
 }
 
 func main() {
@@ -326,6 +334,83 @@ func sessionStop(c *client.Client, out io.Writer, args []string) error {
 	}
 	fmt.Fprintln(out, "stopped", id)
 	return nil
+}
+
+func artifactList(c *client.Client, out io.Writer, args []string) error {
+	ref, rest, err := artifactArgs(c, "artifact list", args)
+	if err != nil {
+		return err
+	}
+	if len(rest) != 0 {
+		return errors.New("usage: l8 artifact list [--task <id|current|parent>]")
+	}
+	artifacts, err := c.Artifacts(ref)
+	if err != nil {
+		return err
+	}
+	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	for _, a := range artifacts {
+		fmt.Fprintf(w, "%s\t%s\t%s\n", a.Path, a.Type, time.UnixMilli(a.ModTime).Format(time.DateTime))
+	}
+	return w.Flush()
+}
+
+func artifactRead(c *client.Client, out io.Writer, args []string) error {
+	ref, rest, err := artifactArgs(c, "artifact read", args)
+	if err != nil {
+		return err
+	}
+	if len(rest) != 1 {
+		return errors.New("usage: l8 artifact read [--task <id|current|parent>] <path>")
+	}
+	data, err := c.ReadArtifact(ref, rest[0])
+	if err != nil {
+		return err
+	}
+	_, err = out.Write(data)
+	return err
+}
+
+func artifactWrite(c *client.Client, out io.Writer, args []string) error {
+	ref, rest, err := artifactArgs(c, "artifact write", args)
+	if err != nil {
+		return err
+	}
+	if len(rest) != 1 {
+		return errors.New("usage: l8 artifact write [--task <id|current|parent>] <path> < content")
+	}
+	a, err := c.WriteArtifact(ref, rest[0], os.Stdin)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "wrote %s (%d bytes)\n", a.Path, a.Size)
+	return nil
+}
+
+// artifactArgs parses --task and resolves it to a task id; it returns the positional arguments.
+func artifactArgs(c *client.Client, name string, args []string) (string, []string, error) {
+	fs := flag.NewFlagSet(name, flag.ContinueOnError)
+	taskRef := fs.String("task", "current", "task id, slug, current or parent")
+	rest, err := parse(fs, args)
+	if err != nil {
+		return "", nil, err
+	}
+	if *taskRef != "parent" {
+		ref, err := current(*taskRef, "L8_TASK_ID")
+		return ref, rest, err
+	}
+	ref, err := current("current", "L8_TASK_ID")
+	if err != nil {
+		return "", nil, err
+	}
+	t, err := c.Task(ref)
+	if err != nil {
+		return "", nil, err
+	}
+	if t.ParentID == "" {
+		return "", nil, fmt.Errorf("task %s has no parent", t.Slug)
+	}
+	return t.ParentID, rest, nil
 }
 
 func sessionArg(args []string) (string, error) {

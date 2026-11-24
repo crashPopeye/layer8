@@ -1,9 +1,10 @@
 import { html, render, useState, useEffect, useCallback } from "/vendor/preact-htm.js";
 import { get, put } from "./api.js";
-import { useEvents } from "./events.js";
+import { useEvents, useSessions } from "./events.js";
 import { Sidebar, home } from "./side.js";
 import { NewTask } from "./newtask.js";
 import { SessionView, NewSession, StatusDot } from "./conversation.js";
+import { RightPanel } from "./panel.js";
 
 /** route reads #/task/<id>[/s/<sessionId> | /new] from the URL hash. */
 function route() {
@@ -35,18 +36,6 @@ function useLive() {
     }
   });
   return { ...data, signedIn, tick };
-}
-
-/** useSessions lists a task's sessions and refetches when one of them changes. */
-function useSessions(taskId) {
-  const [sessions, setSessions] = useState([]);
-  const load = useCallback(() => get(`/api/tasks/${taskId}/sessions`).then(setSessions, () => {}), [taskId]);
-  useEffect(() => {
-    setSessions([]);
-    load();
-  }, [load]);
-  useEvents((e) => (e.kind === "open" || (e.kind === "session" && e.taskId === taskId)) && load());
-  return sessions;
 }
 
 function TaskDetails({ task }) {
@@ -107,6 +96,8 @@ function App() {
   const { projects, tasks, signedIn, tick } = useLive();
   const [where, setWhere] = useState(route());
   const [newTaskIn, setNewTaskIn] = useState(null);
+  const [wide, setWide] = useState(localStorage.getItem("panel") === "wide");
+  const toggleWide = () => (localStorage.setItem("panel", wide ? "" : "wide"), setWide(!wide));
   useEffect(() => {
     const onHash = () => setWhere(route());
     window.addEventListener("hashchange", onHash);
@@ -119,13 +110,14 @@ function App() {
       <div>Open the UI with <code>make dev</code>, or visit <code>/auth?t=&lt;token&gt;</code> with the token from <code>~/.layer8/token</code>.</div>
     </div>`;
   }
-  return html`<div class="app">
+  return html`<div class=${`app ${where.task ? "with-panel" : ""} ${wide ? "wide" : ""}`}>
     <${Sidebar} projects=${projects} tasks=${tasks} selected=${where.task} onSelect=${(id) => go(id)} onNewTask=${setNewTaskIn} />
     <main>
       ${where.task
         ? html`<${TaskView} key=${where.task} id=${where.task} sessionId=${where.session} newSession=${where.newSession} tick=${tick} />`
         : html`<div class="empty"><div class="lbl">No task selected</div><div>Pick a task, or press ＋ next to a project to start one.</div></div>`}
     </main>
+    ${where.task && html`<${RightPanel} taskId=${where.task} wide=${wide} onWide=${toggleWide} />`}
     ${newTaskIn &&
     html`<${NewTask}
       project=${newTaskIn}

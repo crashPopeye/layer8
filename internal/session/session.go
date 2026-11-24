@@ -60,6 +60,7 @@ type Manager struct {
 	publish func(any)
 	spawn   Spawner
 	cfg     Config
+	refresh *coalescer
 
 	mu   sync.Mutex
 	live map[string]*live
@@ -75,7 +76,12 @@ type live struct {
 }
 
 func NewManager(st *store.Store, publish func(any), spawn Spawner, cfg Config) *Manager {
-	return &Manager{store: st, publish: publish, spawn: spawn, cfg: cfg, live: map[string]*live{}}
+	m := &Manager{store: st, publish: publish, spawn: spawn, cfg: cfg, live: map[string]*live{}}
+	m.refresh = newCoalescer(RefreshWindow, func(taskID string) {
+		publish(map[string]any{"kind": "artifacts", "id": taskID})
+		publish(map[string]any{"kind": "changes", "id": taskID})
+	})
+	return m
 }
 
 // View is a session with what only the live process knows.
@@ -227,7 +233,7 @@ func (m *Manager) spawnLocked(s store.Session) (*live, error) {
 	proc, err := m.spawn(opts, claude.Handlers{
 		OnMessage:    func(msg claude.Message) { m.onMessage(s.ID, l, msg) },
 		OnPermission: func(req claude.PermissionRequest) claude.PermissionDecision { return m.onPermission(s.ID, l, req) },
-		OnHook:       func(call claude.HookCall) claude.HookResult { return onHook(artifacts, call) },
+		OnHook:       func(call claude.HookCall) claude.HookResult { return m.onHook(t.ID, artifacts, call) },
 		OnExit:       func(err error) { m.onExit(s.ID, l, err) },
 	})
 	if err != nil {

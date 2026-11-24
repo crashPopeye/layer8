@@ -3,14 +3,17 @@ module github.com/crashPopeye/layer8
 go 1.26.0
 
 require (
+	github.com/alecthomas/chroma/v2 v2.27.0
 	github.com/google/uuid v1.6.0
 	github.com/wailsapp/wails/v3 v3.1.0
+	github.com/yuin/goldmark v1.8.6
 	modernc.org/sqlite v1.61.0
 )
 
 require (
 	git.sr.ht/~jackmordaunt/go-toast/v2 v2.0.3 // indirect
 	github.com/coder/websocket v1.8.14 // indirect
+	github.com/dlclark/regexp2/v2 v2.2.1 // indirect
 	github.com/dustin/go-humanize v1.1.0 // indirect
 	github.com/ebitengine/purego v0.11.1 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect

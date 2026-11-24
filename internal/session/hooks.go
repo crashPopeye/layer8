@@ -4,22 +4,39 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/crashPopeye/layer8/internal/claude"
 )
 
-const parentGuard = "parent-guard"
+const (
+	parentGuard = "parent-guard"
+	refresh     = "refresh"
+)
 
 // hooks are the callbacks every session registers at initialize.
 var hooks = []claude.HookMatcher{
 	{Event: "PreToolUse", Matcher: "Write|Edit|MultiEdit|NotebookEdit", ID: parentGuard},
+	{Event: "PostToolUse", Matcher: "Write|Edit|MultiEdit|Bash", ID: refresh},
 }
 
-// onHook answers a hook callback of a session whose artifacts live in artifactsDir.
-func onHook(artifactsDir string, call claude.HookCall) claude.HookResult {
-	if call.CallbackID != parentGuard {
-		return claude.HookResult{}
+// RefreshWindow is how long tool calls are gathered into one artifacts and changes refresh.
+const RefreshWindow = 500 * time.Millisecond
+
+// onHook answers a hook callback of a session of taskID whose artifacts live in artifactsDir.
+func (m *Manager) onHook(taskID, artifactsDir string, call claude.HookCall) claude.HookResult {
+	switch call.CallbackID {
+	case parentGuard:
+		return guardParent(artifactsDir, call)
+	case refresh:
+		m.refresh.touch(taskID)
 	}
+	return claude.HookResult{}
+}
+
+// guardParent denies writes into the parent task's artifacts.
+func guardParent(artifactsDir string, call claude.HookCall) claude.HookResult {
 	var in struct {
 		FilePath     string `json:"file_path"`
 		NotebookPath string `json:"notebook_path"`
@@ -34,4 +51,32 @@ func onHook(artifactsDir string, call claude.HookCall) claude.HookResult {
 		return claude.HookResult{Deny: "parent artifacts are read-only; use l8 artifact write --task <parent>"}
 	}
 	return claude.HookResult{}
+}
+
+// coalescer calls fire once per key at the end of a window, however often the key is touched during it.
+type coalescer struct {
+	window time.Duration
+	fire   func(key string)
+
+	mu      sync.Mutex
+	pending map[string]bool
+}
+
+func newCoalescer(window time.Duration, fire func(key string)) *coalescer {
+	return &coalescer{window: window, fire: fire, pending: map[string]bool{}}
+}
+
+func (c *coalescer) touch(key string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.pending[key] {
+		return
+	}
+	c.pending[key] = true
+	time.AfterFunc(c.window, func() {
+		c.mu.Lock()
+		delete(c.pending, key)
+		c.mu.Unlock()
+		c.fire(key)
+	})
 }

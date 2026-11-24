@@ -52,6 +52,30 @@ type fixture struct {
 	st    *store.Store
 	procs []*fakeProc
 	task  store.Task
+
+	mu        sync.Mutex
+	published []map[string]any
+}
+
+func (f *fixture) record(v any) {
+	if m, ok := v.(map[string]any); ok {
+		f.mu.Lock()
+		f.published = append(f.published, m)
+		f.mu.Unlock()
+	}
+}
+
+// count is how many published events had kind.
+func (f *fixture) count(kind string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	n := 0
+	for _, e := range f.published {
+		if e["kind"] == kind {
+			n++
+		}
+	}
+	return n
 }
 
 func newFixture(t *testing.T) *fixture {
@@ -72,7 +96,7 @@ func newFixture(t *testing.T) *fixture {
 		t.Fatal(err)
 	}
 	f := &fixture{st: st, task: task}
-	f.m = NewManager(st, func(any) {}, func(o claude.Options, h claude.Handlers) (Proc, error) {
+	f.m = NewManager(st, f.record, func(o claude.Options, h claude.Handlers) (Proc, error) {
 		p := &fakeProc{opts: o, h: h}
 		f.procs = append(f.procs, p)
 		return p, nil
@@ -293,15 +317,38 @@ func TestParentGuard(t *testing.T) {
 		in, _ := json.Marshal(map[string]string{"file_path": path})
 		return claude.HookCall{CallbackID: parentGuard, Input: claude.HookInput{HookEventName: "PreToolUse", ToolName: "Write", ToolInput: in, Cwd: "/ws/child"}}
 	}
-	if r := onHook("/h/artifacts/c", call(".layer8/task/parent/03-prd.md")); r.Deny == "" {
+	if r := guardParent("/h/artifacts/c", call(".layer8/task/parent/03-prd.md")); r.Deny == "" {
 		t.Fatal("write under parent/ allowed")
 	}
-	if r := onHook("/h/artifacts/c", call("/h/artifacts/c/parent/03-prd.md")); r.Deny == "" {
+	if r := guardParent("/h/artifacts/c", call("/h/artifacts/c/parent/03-prd.md")); r.Deny == "" {
 		t.Fatal("write under the artifacts parent link allowed")
 	}
-	if r := onHook("/h/artifacts/c", call(".layer8/task/notes.md")); r.Deny != "" {
+	if r := guardParent("/h/artifacts/c", call(".layer8/task/notes.md")); r.Deny != "" {
 		t.Fatalf("own artifact denied: %s", r.Deny)
 	}
+}
+
+func TestRefreshCoalesces(t *testing.T) {
+	f := newFixture(t)
+	if _, err := f.m.Start(context.Background(), "t1", StartInput{Prompt: "write the prd"}); err != nil {
+		t.Fatal(err)
+	}
+	write := claude.HookCall{CallbackID: refresh, Input: claude.HookInput{HookEventName: "PostToolUse", ToolName: "Write"}}
+	for range 5 {
+		if r := f.procs[0].h.OnHook(write); r.Deny != "" || r.AdditionalContext != "" {
+			t.Fatalf("refresh hook answered %+v", r)
+		}
+	}
+	if n := f.count("artifacts"); n != 0 {
+		t.Fatalf("%d artifacts events before the window ends", n)
+	}
+	waitFor(t, func() bool { return f.count("artifacts") == 1 })
+	time.Sleep(RefreshWindow + 100*time.Millisecond)
+	if a, c := f.count("artifacts"), f.count("changes"); a != 1 || c != 1 {
+		t.Fatalf("artifacts = %d, changes = %d after one window", a, c)
+	}
+	f.procs[0].h.OnHook(write)
+	waitFor(t, func() bool { return f.count("artifacts") == 2 })
 }
 
 func TestContextBlock(t *testing.T) {

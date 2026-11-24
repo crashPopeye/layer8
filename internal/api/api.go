@@ -33,7 +33,8 @@ type server struct {
 
 // New returns the daemon's handler. Requests must target a loopback Host and come
 // from no Origin or this same origin; /api/ also needs the token as a bearer
-// header or as the cookie /auth?t=<token> sets.
+// header or as the cookie /auth?t=<token> sets. /artifact/ URLs carry their own
+// key instead, so sandboxed artifacts (Origin: null) can load their files.
 func New(st *store.Store, hub *Hub, tasks *task.Service, sessions *session.Manager, token string, ui fs.FS) http.Handler {
 	s := &server{store: st, hub: hub, tasks: tasks, sessions: sessions, token: token}
 	mux := http.NewServeMux()
@@ -58,6 +59,14 @@ func New(st *store.Store, hub *Hub, tasks *task.Service, sessions *session.Manag
 	mux.HandleFunc("POST /api/approvals/{id}", s.decide)
 	mux.HandleFunc("GET /api/attention", s.attention)
 	mux.HandleFunc("POST /api/pick-folder", s.pickFolder)
+	mux.HandleFunc("GET /api/tasks/{id}/artifacts", s.listArtifacts)
+	mux.HandleFunc("GET /api/tasks/{id}/artifacts/{path...}", s.readArtifact)
+	mux.HandleFunc("PUT /api/tasks/{id}/artifacts/{path...}", s.writeArtifact)
+	mux.HandleFunc("GET /api/tasks/{id}/render/{path...}", s.renderArtifact)
+	mux.HandleFunc("GET /api/tasks/{id}/comments", s.listComments)
+	mux.HandleFunc("POST /api/tasks/{id}/comments", s.addComment)
+	mux.HandleFunc("POST /api/tasks/{id}/comments/send", s.sendComments)
+	mux.HandleFunc("GET /artifact/{id}/{key}/{path...}", s.sharedArtifact)
 	return s.guard(mux)
 }
 
@@ -67,7 +76,7 @@ func (s *server) guard(next http.Handler) http.Handler {
 			writeError(w, http.StatusForbidden, "forbidden host")
 			return
 		}
-		if origin := r.Header.Get("Origin"); origin != "" && origin != "http://"+r.Host {
+		if origin := r.Header.Get("Origin"); origin != "" && origin != "http://"+r.Host && !strings.HasPrefix(r.URL.Path, "/artifact/") {
 			writeError(w, http.StatusForbidden, "forbidden origin")
 			return
 		}

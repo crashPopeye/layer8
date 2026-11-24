@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -66,26 +67,36 @@ func (c *Client) do(method, path string, in, out any) error {
 			return err
 		}
 	}
-	req, err := http.NewRequest(method, c.base+path, &body)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Authorization", "Bearer "+c.token)
-	req.Header.Set("Content-Type", "application/json")
-	res, err := c.http.Do(req)
+	res, err := c.request(method, path, "application/json", &body)
 	if err != nil {
 		return err
 	}
 	defer res.Body.Close()
-	if res.StatusCode >= 300 {
-		var e struct{ Error string }
-		json.NewDecoder(res.Body).Decode(&e)
-		return fmt.Errorf("%s %s: %s", method, path, e.Error)
-	}
 	if out == nil {
 		return nil
 	}
 	return json.NewDecoder(res.Body).Decode(out)
+}
+
+// request sends body to the daemon and turns an error status into an error.
+func (c *Client) request(method, path, contentType string, body io.Reader) (*http.Response, error) {
+	req, err := http.NewRequest(method, c.base+path, body)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Content-Type", contentType)
+	res, err := c.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if res.StatusCode >= 300 {
+		defer res.Body.Close()
+		e := struct{ Error string }{res.Status}
+		json.NewDecoder(res.Body).Decode(&e)
+		return nil, fmt.Errorf("%s %s: %s", method, path, e.Error)
+	}
+	return res, nil
 }
 
 func (c *Client) Version() (string, error) {
@@ -166,6 +177,41 @@ func (c *Client) Stop(sessionID string) error {
 // Decide answers an approval with allow, always or deny.
 func (c *Client) Decide(approvalID string, d session.Decision) error {
 	return c.do(http.MethodPost, "/api/approvals/"+url.PathEscape(approvalID), d, nil)
+}
+
+// Artifacts lists a task's artifacts, newest first.
+func (c *Client) Artifacts(taskRef string) ([]task.Artifact, error) {
+	var as []task.Artifact
+	return as, c.do(http.MethodGet, "/api/tasks/"+url.PathEscape(taskRef)+"/artifacts", nil, &as)
+}
+
+// ReadArtifact returns the content of a task's artifact.
+func (c *Client) ReadArtifact(taskRef, path string) ([]byte, error) {
+	res, err := c.request(http.MethodGet, artifactPath(taskRef, path), "", nil)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+	return io.ReadAll(res.Body)
+}
+
+// WriteArtifact creates or replaces a task's artifact with data.
+func (c *Client) WriteArtifact(taskRef, path string, data io.Reader) (task.Artifact, error) {
+	var a task.Artifact
+	res, err := c.request(http.MethodPut, artifactPath(taskRef, path), "application/octet-stream", data)
+	if err != nil {
+		return a, err
+	}
+	defer res.Body.Close()
+	return a, json.NewDecoder(res.Body).Decode(&a)
+}
+
+func artifactPath(taskRef, path string) string {
+	segments := strings.Split(path, "/")
+	for i, s := range segments {
+		segments[i] = url.PathEscape(s)
+	}
+	return "/api/tasks/" + url.PathEscape(taskRef) + "/artifacts/" + strings.Join(segments, "/")
 }
 
 // Attention returns how many sessions wait for an approval.
