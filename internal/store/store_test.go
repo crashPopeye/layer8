@@ -1,124 +1,98 @@
 package store
 
 import (
-	"database/sql"
+	"errors"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
-func open(t *testing.T) *Store {
+func schema(t *testing.T, s *Store) (int, []string) {
 	t.Helper()
-	s, err := Open(filepath.Join(t.TempDir(), "t.db"))
+	var version int
+	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := s.db.Query(`SELECT sql FROM sqlite_master WHERE sql IS NOT NULL ORDER BY name`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { s.Close() })
-	return s
+	defer rows.Close()
+	var ddl []string
+	for rows.Next() {
+		var sql string
+		if err := rows.Scan(&sql); err != nil {
+			t.Fatal(err)
+		}
+		ddl = append(ddl, sql)
+	}
+	return version, ddl
 }
 
-func TestRoundTrip(t *testing.T) {
-	s := open(t)
-	p, err := s.InsertProject("p")
-	if err != nil {
-		t.Fatal(err)
-	}
-	w, err := s.InsertFolder(Folder{ProjectID: p.ID, Name: "w", Path: "/w", IsGit: true, DefaultBranch: "main"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.InsertFolder(Folder{Name: "w", Path: "/w"}); err == nil {
-		t.Fatal("duplicate path should fail")
-	}
-	task, err := s.InsertTask(Task{FolderID: w.ID, Slug: "eng-1", Title: "T", Linear: &LinearRef{Identifier: "ENG-1"},
-		WorktreePath: "/wt", ArtifactsPath: "/a", Status: "active"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, _ := s.Task(task.ID)
-	if got.Linear == nil || got.Linear.Identifier != "ENG-1" || !s.SlugTaken("eng-1") {
-		t.Fatalf("task %+v", got)
-	}
-	x, err := s.InsertSlice(Slice{TaskID: task.ID, Key: "pr1", Title: "S", DependsOn: []string{"a"}, Branch: "b", WorktreePath: "/s"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	x.PRNumber, x.CIState = 12, "FAILURE"
-	if err := s.UpdateSlice(x); err != nil {
-		t.Fatal(err)
-	}
-	x2, _ := s.Slice(x.ID)
-	if x2.PRNumber != 12 || x2.CIState != "FAILURE" || len(x2.DependsOn) != 1 {
-		t.Fatalf("slice %+v", x2)
-	}
-	sess, _ := s.InsertSession(Session{TaskID: task.ID, Kind: "chat", Title: "c", Cwd: "/wt"})
-	s.SetSessionCost(sess.ID, 0.5)
-	s.SetSessionCost(sess.ID, 0.2)
-	s.SetSessionStatus(sess.ID, "running", "")
-	got2, _ := s.Session(sess.ID)
-	if got2.CostUSD != 0.5 || got2.Status != "running" {
-		t.Fatalf("session %+v", got2)
-	}
-	e, _ := s.AddEvent(sess.ID, "text", map[string]any{"text": "hi"})
-	evs, _ := s.Events(sess.ID, 0)
-	if len(evs) != 1 || evs[0].ID != e.ID || evs[0].Data["text"] != "hi" {
-		t.Fatalf("events %+v", evs)
-	}
-	a, _ := s.InsertApproval(sess.ID, "Bash", map[string]any{"command": "ls"})
-	if p, _ := s.PendingApprovals(); len(p) != 1 || p[0].Input["command"] != "ls" {
-		t.Fatalf("approvals %+v", p)
-	}
-	s.RecoverSessions()
-	got3, _ := s.Session(sess.ID)
-	if got3.Status != "interrupted" {
-		t.Fatal(got3.Status)
-	}
-	if p, _ := s.PendingApprovals(); len(p) != 0 {
-		t.Fatal("approval should be cancelled", a)
-	}
-	c, _ := s.InsertComment(Comment{TaskID: task.ID, Target: "artifact", Path: "plan.md", Line: 3, Body: "why?"})
-	s.MarkCommentsSent([]string{c.ID})
-	cs, _ := s.Comments(task.ID)
-	if len(cs) != 1 || cs[0].Status != "sent" {
-		t.Fatalf("comments %+v", cs)
-	}
-	if err := s.DeleteProject(p.ID); err != nil {
-		t.Fatal(err)
-	}
-	if ts, _ := s.Tasks(); len(ts) != 0 {
-		t.Fatal("cascade failed")
-	}
-}
-
-func TestMigrateWorkspaces(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "old.db")
-	db, err := sql.Open("sqlite", "file:"+path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = db.Exec(`
-CREATE TABLE workspaces (id TEXT PRIMARY KEY, name TEXT NOT NULL, path TEXT NOT NULL UNIQUE,
-  is_git INTEGER NOT NULL, default_branch TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL);
-CREATE TABLE tasks (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
-  slug TEXT NOT NULL UNIQUE, title TEXT NOT NULL, linear TEXT NOT NULL DEFAULT '',
-  branch TEXT NOT NULL DEFAULT '', base_ref TEXT NOT NULL DEFAULT '', base_sha TEXT NOT NULL DEFAULT '',
-  worktree_path TEXT NOT NULL, artifacts_path TEXT NOT NULL, tmux_session TEXT NOT NULL DEFAULT '',
-  status TEXT NOT NULL, sync_state TEXT NOT NULL DEFAULT '', sync_message TEXT NOT NULL DEFAULT '',
-  created_at TEXT NOT NULL);
-INSERT INTO workspaces VALUES ('w1','api','/api',1,'main','t');
-INSERT INTO tasks (id,workspace_id,slug,title,worktree_path,artifacts_path,status,created_at) VALUES ('t1','w1','s','T','/wt','/a','active','t');`)
-	db.Close()
-	if err != nil {
-		t.Fatal(err)
-	}
+func TestMigrationsAreIdempotent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "layer8.db")
 	s, err := Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
+	v1, ddl1 := schema(t, s)
+	s.Close()
+
+	s, err = Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer s.Close()
-	ps, _ := s.Projects()
-	f, _ := s.Folder("w1")
-	task, _ := s.Task("t1")
-	if len(ps) != 1 || ps[0].Name != "api" || f.ProjectID != ps[0].ID || task.FolderID != "w1" {
-		t.Fatalf("projects %+v folder %+v task %+v", ps, f, task)
+	v2, ddl2 := schema(t, s)
+	if v1 != len(migrations) || v2 != v1 || !reflect.DeepEqual(ddl1, ddl2) {
+		t.Fatalf("second open changed the schema: v%d → v%d\n%v\n%v", v1, v2, ddl1, ddl2)
+	}
+}
+
+func TestRoundTrip(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "layer8.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	p := Project{ID: "p1", Name: "layer8", Path: "/w/layer8", BaseBranch: "main", Instructions: "Use Go.", CreatedAt: 1}
+	if err := s.InsertProject(p); err != nil {
+		t.Fatal(err)
+	}
+	projects, err := s.Projects()
+	if err != nil || !reflect.DeepEqual(projects, []Project{p}) {
+		t.Fatalf("projects = %+v, %v", projects, err)
+	}
+
+	older := Task{ID: "t1", ProjectID: "p1", Slug: "smoke", Title: "Smoke", Workflow: "oneshot", Status: "active",
+		Branch: "l8/smoke", BaseRef: "origin/main", Worktree: "/ws/smoke", Autonomous: true, CreatedAt: 10}
+	newer := Task{ID: "t2", ProjectID: "p1", ParentID: "t1", Slug: "child", Title: "Child", Status: "done", CreatedAt: 20}
+	for _, task := range []Task{older, newer} {
+		if err := s.InsertTask(task); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	all, err := s.ListTasks(TaskFilter{ProjectID: "p1"})
+	if err != nil || !reflect.DeepEqual(all, []Task{newer, older}) {
+		t.Fatalf("tasks = %+v, %v", all, err)
+	}
+	active, err := s.ListTasks(TaskFilter{Status: "active"})
+	if err != nil || !reflect.DeepEqual(active, []Task{older}) {
+		t.Fatalf("active = %+v, %v", active, err)
+	}
+	bySlug, err := s.Task("smoke")
+	if err != nil || bySlug != older {
+		t.Fatalf("by slug = %+v, %v", bySlug, err)
+	}
+	if err := s.SetTaskStatus("t1", "archived"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.Task("t1"); got.Status != "archived" {
+		t.Fatalf("status = %q", got.Status)
+	}
+	if _, err := s.Task("nope"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing task err = %v", err)
 	}
 }

@@ -1,8 +1,7 @@
-// Package ui holds the frontend: plain HTML, CSS and JS served by the Go app.
-// There is no build step; vendor/ holds the only third-party script.
+// Package ui holds the frontend: plain HTML, CSS and ES modules with no build step.
 package ui
 
 import "embed"
 
-//go:embed index.html styles.css logo.png js vendor fonts
+//go:embed index.html styles.css js vendor
 var FS embed.FS

@@ -1,129 +1,74 @@
-// Package daemon runs layer8's background service and manages its lifecycle:
-// a launchd LaunchAgent on macOS keeps it alive across app restarts and updates.
+// Package daemon wires layer8's state, services and HTTP API together.
 package daemon
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
-	"fmt"
-	"io"
-	"io/fs"
 	"log"
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
-	"os/signal"
 	"path/filepath"
-	"runtime"
-	"syscall"
+	"strings"
 	"time"
 
-	"github.com/crashPopeye/layer8/internal/config"
-	"github.com/crashPopeye/layer8/internal/core"
-	"github.com/crashPopeye/layer8/internal/server"
-	"github.com/crashPopeye/layer8/internal/shellenv"
+	"github.com/crashPopeye/layer8/internal/api"
+	"github.com/crashPopeye/layer8/internal/client"
+	"github.com/crashPopeye/layer8/internal/gitx"
+	"github.com/crashPopeye/layer8/internal/store"
+	"github.com/crashPopeye/layer8/internal/task"
+	"github.com/crashPopeye/layer8/ui"
 )
 
-// Serve runs the daemon until SIGTERM/SIGINT, a /api/shutdown request, or (once no
-// agent is working) its own executable being replaced by an update.
-func Serve(version string, ui fs.FS) error {
-	shellenv.Fix()
-	paths, err := config.ResolvePaths()
+// Run serves the API on addr with all state under home until ctx is done.
+func Run(ctx context.Context, home, addr string) error {
+	if err := os.MkdirAll(home, 0o700); err != nil {
+		return err
+	}
+	token, err := ensureToken(client.TokenPath(home))
 	if err != nil {
 		return err
 	}
-	if f, err := os.OpenFile(filepath.Join(paths.Logs, "layer8d.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644); err == nil {
-		log.SetOutput(io.MultiWriter(os.Stderr, f))
-	}
-	token, err := config.Token(paths)
+	st, err := store.Open(filepath.Join(home, "layer8.db"))
 	if err != nil {
 		return err
 	}
-	hub := server.NewHub()
-	app, err := core.New(core.Options{Paths: paths, Version: version, Emit: hub.Emit})
-	if err != nil {
-		return err
-	}
-	port := app.Config.Get().Port
-	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
-	if err != nil {
-		app.Shutdown()
-		return fmt.Errorf("listen on 127.0.0.1:%d (is another layer8d running, or change the port in ~/.layer8/config.json): %w", port, err)
-	}
+	defer st.Close()
 
-	stop := make(chan string, 1)
-	requestStop := func(reason string) {
-		select {
-		case stop <- reason:
-		default:
-		}
-	}
-	api := app.Handler(core.Hooks{
-		OpenURL:  OpenURL,
-		Shutdown: func() { requestStop("shutdown requested") },
-	})
+	hub := api.NewHub()
+	tasks := task.NewService(st, gitx.Git{}, home, hub.Notify)
 	srv := &http.Server{
-		Handler:           server.New(token, port, api, ui, hub).Handler(),
-		ReadHeaderTimeout: 10 * time.Second,
+		Handler:     api.New(st, hub, tasks, token, ui.FS),
+		BaseContext: func(net.Listener) context.Context { return ctx },
+	}
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return err
 	}
 	go func() {
-		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			requestStop("server error: " + err.Error())
-		}
+		<-ctx.Done()
+		shutdown, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		srv.Shutdown(shutdown)
 	}()
-	app.Run()
-	log.Printf("layer8d %s listening on 127.0.0.1:%d (pid %d)", version, port, os.Getpid())
-
-	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, syscall.SIGTERM, syscall.SIGINT)
-	go watchForUpdate(app, requestStop)
-
-	var reason string
-	select {
-	case s := <-sigs:
-		reason = "signal " + s.String()
-	case reason = <-stop:
+	log.Printf("layer8 %s on http://%s, state in %s", api.Version, addr, home)
+	if err := srv.Serve(ln); !errors.Is(err, http.ErrServerClosed) {
+		return err
 	}
-	log.Printf("layer8d stopping: %s", reason)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	_ = srv.Shutdown(ctx) // SSE streams are cut; clients reconnect to the next daemon
-	app.Shutdown()
 	return nil
 }
 
-// watchForUpdate exits once the binary on disk changed (the app was updated) and no
-// agent is working; launchd then starts the new version.
-func watchForUpdate(app *core.App, requestStop func(string)) {
-	exe, err := os.Executable()
-	if err != nil {
-		return
+// ensureToken returns the API token stored at path, creating it on first run.
+func ensureToken(path string) (string, error) {
+	if b, err := os.ReadFile(path); err == nil && len(strings.TrimSpace(string(b))) > 0 {
+		return strings.TrimSpace(string(b)), nil
 	}
-	if r, err := filepath.EvalSymlinks(exe); err == nil {
-		exe = r
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return "", err
 	}
-	orig, err := os.Stat(exe)
-	if err != nil {
-		return
-	}
-	for range time.Tick(30 * time.Second) {
-		now, err := os.Stat(exe)
-		if err != nil || os.SameFile(orig, now) && now.ModTime().Equal(orig.ModTime()) {
-			continue // unchanged, or mid-replacement
-		}
-		if running, queued := app.Sessions.Counts(); running+queued == 0 {
-			requestStop("a new version was installed")
-			return
-		}
-	}
-}
-
-// OpenURL opens an http(s) link in the default browser.
-func OpenURL(u string) error {
-	cmd := "xdg-open"
-	if runtime.GOOS == "darwin" {
-		cmd = "/usr/bin/open"
-	}
-	return exec.Command(cmd, u).Start()
+	token := hex.EncodeToString(raw)
+	return token, os.WriteFile(path, []byte(token+"\n"), 0o600)
 }
