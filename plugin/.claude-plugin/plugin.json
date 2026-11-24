@@ -1,4 +1,4 @@
 {
   "name": "l8",
-  "description": "Drive layer8 from a session: tasks, sub-tasks, sessions and artifacts through the l8 CLI."
+  "description": "Drive layer8 from a session through the l8 CLI, and run its workflows: research, PRD, TDD, outline, plan, implement and PR."
 }

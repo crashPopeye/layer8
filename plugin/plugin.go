@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 )
 
-//go:embed .claude-plugin skills
+//go:embed .claude-plugin skills agents
 var FS embed.FS
 
 // Version identifies the embedded plugin's content.

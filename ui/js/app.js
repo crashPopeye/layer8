@@ -1,10 +1,11 @@
-import { html, render, useState, useEffect, useCallback } from "/vendor/preact-htm.js";
+import { html, render, useState, useEffect, useCallback, useRef } from "/vendor/preact-htm.js";
 import { get, put } from "./api.js";
 import { useEvents, useSessions, useActiveSessions } from "./events.js";
 import { Sidebar, home } from "./side.js";
 import { NewTask } from "./newtask.js";
 import { SessionView, NewSession, StatusDot } from "./conversation.js";
 import { RightPanel } from "./panel.js";
+import { PhaseRail } from "./rail.js";
 
 /** route reads #/task/<id>[/s/<sessionId> | /new] from the URL hash. */
 function route() {
@@ -55,13 +56,22 @@ function TaskDetails({ task, parent }) {
 function TaskView({ id, sessionId, newSession, tick, tasks, onNewSubtask }) {
   const [task, setTask] = useState(null);
   const [error, setError] = useState("");
+  const [work, setWork] = useState(0);
+  const settle = useRef(0);
   const sessions = useSessions(id);
   useEffect(() => {
     get(`/api/tasks/${id}`).then(
       (t) => (setTask(t), setError("")),
       (err) => setError(err.message),
     );
-  }, [id, tick]);
+  }, [id, tick, work]);
+  useEvents((e) => {
+    if (["artifacts", "changes"].includes(e.kind) && e.id === id) {
+      clearTimeout(settle.current);
+      settle.current = setTimeout(() => setWork((n) => n + 1), 300);
+    }
+  });
+  useEffect(() => () => clearTimeout(settle.current), []);
   if (error) return html`<div class="empty err">${error}</div>`;
   if (!task) return null;
   const setStatus = (status) => put(`/api/tasks/${task.id}`, { status }).catch((err) => setError(err.message));
@@ -77,6 +87,7 @@ function TaskView({ id, sessionId, newSession, tick, tasks, onNewSubtask }) {
           : html`<button onClick=${() => setStatus("active")}>Reopen</button>`}
       </div>
     </header>
+    <${PhaseRail} task=${task} onStarted=${(s) => go(id, `s/${s.id}`)} />
     <nav class="tabs">
       <a class=${!sessionId && !newSession ? "sel" : ""} href=${`#/task/${id}`}>Task</a>
       ${sessions.map(

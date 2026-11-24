@@ -213,3 +213,12 @@ img.artifact { max-width: 100%; }
 .ch-chroma .ch-gi { color: var(--terminal-success); }
 .ch-chroma .ch-gd { color: var(--terminal-error); }
 .ch-chroma .ch-gh, .ch-chroma .ch-gu { color: var(--terminal-accent); font-weight: 600; }
+
+.rail { border-bottom: 1px solid var(--terminal-border); padding: 6px 14px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: 12px; }
+.rail .ph { color: var(--terminal-fg-dim); white-space: nowrap; }
+.rail .ph.done { color: var(--terminal-success); }
+.rail .ph.cur { color: var(--terminal-accent); font-weight: 600; }
+.rail .sep { color: var(--terminal-border); }
+.rail .check { display: flex; gap: 4px; align-items: center; color: var(--terminal-fg-dim); white-space: nowrap; }
+.rail .check input { width: auto; }
+.rail .err { font-size: 12px; }

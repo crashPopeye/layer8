@@ -49,6 +49,7 @@ func New(st *store.Store, hub *Hub, tasks *task.Service, sessions *session.Manag
 	mux.HandleFunc("POST /api/tasks", s.createTask)
 	mux.HandleFunc("GET /api/tasks/{id}", s.getTask)
 	mux.HandleFunc("PUT /api/tasks/{id}", s.updateTask)
+	mux.HandleFunc("POST /api/tasks/{id}/phase/next", s.nextPhase)
 	mux.HandleFunc("GET /api/sessions", s.activeSessions)
 	mux.HandleFunc("GET /api/tasks/{id}/sessions", s.listSessions)
 	mux.HandleFunc("POST /api/tasks/{id}/sessions", s.startSession)
@@ -165,19 +166,22 @@ func (s *server) createTask(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) getTask(w http.ResponseWriter, r *http.Request) {
-	d, err := s.tasks.Detail(r.PathValue("id"))
+	d, err := s.tasks.Detail(r.Context(), r.PathValue("id"))
 	reply(w, d, err)
 }
 
 func (s *server) updateTask(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Status string `json:"status"`
-	}
+	var in task.TaskUpdate
 	if !decode(w, r, &in) {
 		return
 	}
-	t, err := s.tasks.SetStatus(r.PathValue("id"), in.Status)
+	t, err := s.tasks.Update(r.Context(), r.PathValue("id"), in)
 	reply(w, t, err)
+}
+
+func (s *server) nextPhase(w http.ResponseWriter, r *http.Request) {
+	ss, err := s.tasks.Next(r.Context(), r.PathValue("id"))
+	reply(w, ss, err)
 }
 
 func (s *server) activeSessions(w http.ResponseWriter, r *http.Request) {

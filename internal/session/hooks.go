@@ -2,23 +2,27 @@ package session
 
 import (
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/crashPopeye/layer8/internal/claude"
+	"github.com/crashPopeye/layer8/internal/workflow"
 )
 
 const (
 	parentGuard = "parent-guard"
 	refresh     = "refresh"
+	route       = "route"
 )
 
 // hooks are the callbacks every session registers at initialize.
 var hooks = []claude.HookMatcher{
 	{Event: "PreToolUse", Matcher: "Write|Edit|MultiEdit|NotebookEdit", ID: parentGuard},
 	{Event: "PostToolUse", Matcher: "Write|Edit|MultiEdit|Bash", ID: refresh},
+	{Event: "PostToolUse", Matcher: "Skill", ID: route},
 }
 
 // RefreshWindow is how long tool calls are gathered into one artifacts and changes refresh.
@@ -31,8 +35,27 @@ func (m *Manager) onHook(taskID, artifactsDir string, call claude.HookCall) clau
 		return guardParent(artifactsDir, call)
 	case refresh:
 		m.refresh.touch(taskID)
+	case route:
+		return m.routeSkill(taskID, call)
 	}
 	return claude.HookResult{}
+}
+
+// routeSkill tells the agent which skill comes after the one it just loaded in its task's workflow.
+func (m *Manager) routeSkill(taskID string, call claude.HookCall) claude.HookResult {
+	var in struct {
+		Skill string `json:"skill"`
+	}
+	json.Unmarshal(call.Input.ToolInput, &in)
+	t, err := m.store.Task(taskID)
+	if err != nil {
+		return claude.HookResult{}
+	}
+	next, ok := workflow.AfterSkill(t.Workflow, in.Skill)
+	if !ok {
+		return claude.HookResult{}
+	}
+	return claude.HookResult{AdditionalContext: fmt.Sprintf("Next in %s: %s", t.Workflow, next.Skill)}
 }
 
 // guardParent denies writes into the parent task's artifacts.

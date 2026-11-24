@@ -53,6 +53,7 @@ func Run(ctx context.Context, home, addr string) error {
 		Env:           sessionEnv(home, addr),
 	})
 	tasks := task.NewService(st, gitx.Git{}, home, hub.Notify, sessions)
+	sessions.OnIdle = tasks.PhaseCheck
 	srv := &http.Server{
 		Handler:     api.New(st, hub, tasks, sessions, token, ui.FS),
 		BaseContext: func(net.Listener) context.Context { return ctx },

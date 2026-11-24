@@ -12,11 +12,13 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/crashPopeye/layer8/internal/gitx"
 	"github.com/crashPopeye/layer8/internal/session"
 	"github.com/crashPopeye/layer8/internal/store"
+	"github.com/crashPopeye/layer8/internal/workflow"
 	"github.com/google/uuid"
 )
 
@@ -43,6 +45,8 @@ type Service struct {
 	home     string
 	notify   func(kind, id string)
 	sessions *session.Manager
+
+	phaseMu sync.Mutex
 }
 
 // NewService returns a Service keeping worktrees and artifacts under home; sessions
@@ -112,16 +116,18 @@ func (s *Service) UpdateProject(id string, u ProjectUpdate) (store.Project, erro
 // CreateInput describes a new task. ParentID makes it a sub-task of that task, in
 // the parent's project and branched from the parent's branch. AdoptPath turns an
 // existing folder into the task's worktree instead of creating one. Start starts
-// the task's first session with Prompt.
+// the task's first session: its workflow's first phase, or Prompt for freeform.
+// AutoAdvance starts each next phase as soon as the previous one is done.
 type CreateInput struct {
-	ProjectID  string `json:"projectId"`
-	ParentID   string `json:"parentId"`
-	Title      string `json:"title"`
-	Workflow   string `json:"workflow"`
-	Prompt     string `json:"prompt"`
-	AdoptPath  string `json:"adoptPath"`
-	Autonomous bool   `json:"autonomous"`
-	Start      bool   `json:"start"`
+	ProjectID   string `json:"projectId"`
+	ParentID    string `json:"parentId"`
+	Title       string `json:"title"`
+	Workflow    string `json:"workflow"`
+	Prompt      string `json:"prompt"`
+	AdoptPath   string `json:"adoptPath"`
+	Autonomous  bool   `json:"autonomous"`
+	AutoAdvance bool   `json:"autoAdvance"`
+	Start       bool   `json:"start"`
 }
 
 // Created is a new task and, when it was asked to start, its first session.
@@ -169,14 +175,15 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (Created, error) {
 		return Created{}, err
 	}
 	t := store.Task{
-		ID:         uuid.Must(uuid.NewV7()).String(),
-		ProjectID:  p.ID,
-		Slug:       slug,
-		Title:      in.Title,
-		Workflow:   in.Workflow,
-		Status:     "active",
-		Autonomous: in.Autonomous,
-		CreatedAt:  time.Now().UnixMilli(),
+		ID:          uuid.Must(uuid.NewV7()).String(),
+		ProjectID:   p.ID,
+		Slug:        slug,
+		Title:       in.Title,
+		Workflow:    in.Workflow,
+		Status:      "active",
+		Autonomous:  in.Autonomous,
+		AutoAdvance: in.AutoAdvance,
+		CreatedAt:   time.Now().UnixMilli(),
 	}
 	if parent != nil {
 		t.ParentID, t.BaseRef = parent.ID, parent.Branch
@@ -202,7 +209,7 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (Created, error) {
 	if !in.Start {
 		return c, nil
 	}
-	ss, err := s.sessions.Start(ctx, t.ID, session.StartInput{Label: firstLabel(t.Workflow), Prompt: firstMessage(in.Prompt)})
+	ss, err := s.startFirst(ctx, &c.Task, in.Prompt)
 	if err != nil {
 		return c, fmt.Errorf("task %s was created but its session did not start: %w", t.Slug, err)
 	}
@@ -210,19 +217,15 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (Created, error) {
 	return c, nil
 }
 
-// firstLabels name a workflow's first session after the phase it opens.
-var firstLabels = map[string]string{
-	"rpi":          "research-questions",
-	"prd_tdd":      "research-questions",
-	"outline_only": "research",
-	"oneshot":      "implement",
-}
-
-func firstLabel(workflow string) string {
-	if label, ok := firstLabels[workflow]; ok {
-		return label
+// startFirst starts a new task's first session: its workflow's first phase, or a plain session for freeform.
+func (s *Service) startFirst(ctx context.Context, t *store.Task, prompt string) (store.Session, error) {
+	first, ok := workflow.First(t.Workflow)
+	if !ok {
+		return s.sessions.Start(ctx, t.ID, session.StartInput{Label: "session", Prompt: firstMessage(prompt)})
 	}
-	return "session"
+	s.phaseMu.Lock()
+	defer s.phaseMu.Unlock()
+	return s.startPhase(ctx, t, first, prompt)
 }
 
 // firstMessage is what a started task's first session receives.
@@ -292,15 +295,16 @@ func (s *Service) linkArtifacts(ctx context.Context, t store.Task, taskMD string
 	return ensureLine(filepath.Join(common, "info", "exclude"), ".layer8/")
 }
 
-// Detail is a task with its artifacts folder and the content of its task.md.
+// Detail is a task with its artifacts folder, the content of its task.md and its workflow progress.
 type Detail struct {
 	store.Task
+	Progress
 	ArtifactsDir string `json:"artifactsDir"`
 	TaskMD       string `json:"taskMd"`
 }
 
-// Detail looks a task up by id or slug and reads its task.md.
-func (s *Service) Detail(idOrSlug string) (Detail, error) {
+// Detail looks a task up by id or slug and reads its task.md and workflow progress.
+func (s *Service) Detail(ctx context.Context, idOrSlug string) (Detail, error) {
 	t, err := s.store.Task(idOrSlug)
 	if err != nil {
 		return Detail{}, err
@@ -310,23 +314,52 @@ func (s *Service) Detail(idOrSlug string) (Detail, error) {
 	if err != nil && !os.IsNotExist(err) {
 		return Detail{}, err
 	}
-	return Detail{Task: t, ArtifactsDir: dir, TaskMD: string(md)}, nil
+	return Detail{Task: t, Progress: s.progress(ctx, t), ArtifactsDir: dir, TaskMD: string(md)}, nil
 }
 
-// SetStatus moves a task to active, done or archived.
-func (s *Service) SetStatus(idOrSlug, status string) (store.Task, error) {
-	if !slices.Contains(Statuses, status) {
-		return store.Task{}, fmt.Errorf("%w: unknown status %q", ErrInvalid, status)
-	}
+// TaskUpdate holds the task fields to change; nil fields are kept.
+type TaskUpdate struct {
+	Status      *string `json:"status"`
+	Phase       *string `json:"phase"`
+	AutoAdvance *bool   `json:"autoAdvance"`
+	Autonomous  *bool   `json:"autonomous"`
+}
+
+// Update applies u to a task. Turning auto-advance on starts the next phase
+// right away if the current one is already done.
+func (s *Service) Update(ctx context.Context, idOrSlug string, u TaskUpdate) (store.Task, error) {
+	s.phaseMu.Lock()
+	defer s.phaseMu.Unlock()
 	t, err := s.store.Task(idOrSlug)
 	if err != nil {
 		return t, err
 	}
-	if err := s.store.SetTaskStatus(t.ID, status); err != nil {
+	if u.Status != nil {
+		if !slices.Contains(Statuses, *u.Status) {
+			return t, fmt.Errorf("%w: unknown status %q", ErrInvalid, *u.Status)
+		}
+		t.Status = *u.Status
+	}
+	if u.Phase != nil {
+		if _, ok := workflow.Find(t.Workflow, *u.Phase); !ok && *u.Phase != "" {
+			return t, fmt.Errorf("%w: workflow %s has no phase %q", ErrInvalid, t.Workflow, *u.Phase)
+		}
+		t.Phase = *u.Phase
+	}
+	if u.AutoAdvance != nil {
+		t.AutoAdvance = *u.AutoAdvance
+	}
+	if u.Autonomous != nil {
+		t.Autonomous = *u.Autonomous
+	}
+	if err := s.store.UpdateTask(t); err != nil {
 		return t, err
 	}
-	t.Status = status
 	s.notify("task", t.ID)
+	if u.AutoAdvance != nil && t.AutoAdvance {
+		s.advance(ctx, t)
+		return s.store.Task(t.ID)
+	}
 	return t, nil
 }
 

@@ -143,8 +143,19 @@ func (c *Client) CreateTask(in task.CreateInput) (task.Created, error) {
 }
 
 func (c *Client) SetTaskStatus(idOrSlug, status string) (store.Task, error) {
+	return c.UpdateTask(idOrSlug, task.TaskUpdate{Status: &status})
+}
+
+// UpdateTask changes a task's status, phase, auto-advance or autonomy.
+func (c *Client) UpdateTask(idOrSlug string, u task.TaskUpdate) (store.Task, error) {
 	var t store.Task
-	return t, c.do(http.MethodPut, "/api/tasks/"+url.PathEscape(idOrSlug), map[string]string{"status": status}, &t)
+	return t, c.do(http.MethodPut, "/api/tasks/"+url.PathEscape(idOrSlug), u, &t)
+}
+
+// NextPhase starts the session of the task's next workflow phase.
+func (c *Client) NextPhase(idOrSlug string) (store.Session, error) {
+	var s store.Session
+	return s, c.do(http.MethodPost, "/api/tasks/"+url.PathEscape(idOrSlug)+"/phase/next", nil, &s)
 }
 
 // Sessions lists a task's sessions.

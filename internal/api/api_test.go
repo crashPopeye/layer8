@@ -251,6 +251,36 @@ func TestSessionThroughClient(t *testing.T) {
 	}
 }
 
+func TestPhasesThroughClient(t *testing.T) {
+	srv := httptest.NewServer(handler(t))
+	t.Cleanup(srv.Close)
+	c := client.New(srv.URL, token)
+	p, err := c.AddProject(repo(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err := c.CreateTask(task.CreateInput{ProjectID: p.ID, Title: "Make lint", Workflow: "prd_tdd"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d, err := c.Task(created.ID); err != nil || d.Next != "research-questions" || len(d.Phases) != 7 || d.Phases[2].Skill != "/l8:create-prd" {
+		t.Fatalf("progress = %+v, %v", d.Progress, err)
+	}
+	s, err := c.NextPhase(created.Slug)
+	if err != nil || s.Label != "research-questions" {
+		t.Fatalf("next phase session = %+v, %v", s, err)
+	}
+	on := true
+	updated, err := c.UpdateTask(created.ID, task.TaskUpdate{AutoAdvance: &on})
+	if err != nil || !updated.AutoAdvance || updated.Phase != "research-questions" {
+		t.Fatalf("updated = %+v, %v", updated, err)
+	}
+	bad := "deploy"
+	if _, err := c.UpdateTask(created.ID, task.TaskUpdate{Phase: &bad}); err == nil || !strings.Contains(err.Error(), "no phase") {
+		t.Fatalf("unknown phase err = %v", err)
+	}
+}
+
 // subscribe streams the data lines of /api/events into a channel.
 func subscribe(t *testing.T, base string) <-chan string {
 	t.Helper()

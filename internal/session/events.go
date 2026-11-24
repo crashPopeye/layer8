@@ -120,6 +120,9 @@ func (m *Manager) onResult(sessionID string, l *live, msg claude.Message) {
 	s.Status = "ready_for_input"
 	m.save(s)
 	m.notify(s, "attention")
+	if m.OnIdle != nil {
+		go m.OnIdle(s)
+	}
 }
 
 // Summary is the one-line description of a tool call shown on its card.

@@ -69,3 +69,18 @@ func (g Git) WorktreeAdd(ctx context.Context, repo, path, branch, base string) e
 	_, err := g.Run(ctx, repo, "worktree", "add", "--no-track", "-b", branch, path, base)
 	return err
 }
+
+// HasChanges reports whether the worktree differs from its merge-base with
+// baseRef, counting commits, uncommitted edits and untracked files.
+func (g Git) HasChanges(ctx context.Context, worktree, baseRef string) (bool, error) {
+	mb, err := g.Run(ctx, worktree, "merge-base", baseRef, "HEAD")
+	if err != nil {
+		return false, err
+	}
+	changed, err := g.Run(ctx, worktree, "diff", "--name-only", "--no-ext-diff", mb)
+	if err != nil || changed != "" {
+		return changed != "", err
+	}
+	untracked, err := g.Run(ctx, worktree, "ls-files", "--others", "--exclude-standard")
+	return untracked != "", err
+}

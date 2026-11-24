@@ -86,11 +86,12 @@ func TestRoundTrip(t *testing.T) {
 	if err != nil || bySlug != older {
 		t.Fatalf("by slug = %+v, %v", bySlug, err)
 	}
-	if err := s.SetTaskStatus("t1", "archived"); err != nil {
+	older.Status, older.Phase, older.AutoAdvance = "archived", "tdd", true
+	if err := s.UpdateTask(older); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := s.Task("t1"); got.Status != "archived" {
-		t.Fatalf("status = %q", got.Status)
+	if got, _ := s.Task("t1"); got != older {
+		t.Fatalf("after update = %+v", got)
 	}
 	if _, err := s.Task("nope"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("missing task err = %v", err)

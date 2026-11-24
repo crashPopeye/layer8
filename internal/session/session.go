@@ -56,6 +56,10 @@ type Config struct {
 
 // Manager owns every live session process and the policy around it.
 type Manager struct {
+	// OnIdle, when set, runs in its own goroutine each time a session finishes
+	// a turn with nothing queued; set it before the first session starts.
+	OnIdle func(store.Session)
+
 	store   *store.Store
 	publish func(any)
 	spawn   Spawner

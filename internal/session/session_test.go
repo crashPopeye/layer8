@@ -374,6 +374,57 @@ func TestRefreshCoalesces(t *testing.T) {
 	waitFor(t, func() bool { return f.count("artifacts") == 2 })
 }
 
+func TestSkillRoutesToTheNextPhase(t *testing.T) {
+	f := newFixture(t)
+	if _, err := f.m.Start(context.Background(), "t1", StartInput{Label: "research", Prompt: "/l8:create-research .layer8/task/"}); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(f.procs[0].opts.Hooks, func(h claude.HookMatcher) bool {
+		return h.Event == "PostToolUse" && h.Matcher == "Skill" && h.ID == route
+	}) {
+		t.Fatalf("hooks = %+v", f.procs[0].opts.Hooks)
+	}
+	skill := func(name string) claude.HookResult {
+		in, _ := json.Marshal(map[string]string{"skill": name})
+		return f.procs[0].h.OnHook(claude.HookCall{CallbackID: route,
+			Input: claude.HookInput{HookEventName: "PostToolUse", ToolName: "Skill", ToolInput: in}})
+	}
+	if r := skill("l8:create-research"); r.AdditionalContext != "Next in prd_tdd: /l8:create-prd" {
+		t.Fatalf("after create-research: %+v", r)
+	}
+	if r := skill("l8:show-me"); r.AdditionalContext != "" {
+		t.Fatalf("after show-me: %+v", r)
+	}
+}
+
+func TestOnIdleAfterTheQueueDrains(t *testing.T) {
+	f := newFixture(t)
+	idle := make(chan store.Session, 2)
+	f.m.OnIdle = func(s store.Session) { idle <- s }
+	s, err := f.m.Start(context.Background(), "t1", StartInput{Label: "prd", Prompt: "first"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.m.Send(context.Background(), s.ID, "second"); err != nil {
+		t.Fatal(err)
+	}
+	f.procs[0].h.OnMessage(result(0.1))
+	select {
+	case <-idle:
+		t.Fatal("OnIdle ran with a message still queued")
+	case <-time.After(50 * time.Millisecond):
+	}
+	f.procs[0].h.OnMessage(result(0.2))
+	select {
+	case got := <-idle:
+		if got.ID != s.ID || got.Status != "ready_for_input" || got.InTurn {
+			t.Fatalf("OnIdle got %+v", got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("OnIdle never ran")
+	}
+}
+
 func TestContextBlock(t *testing.T) {
 	block := ContextBlock(ContextData{
 		Session:      store.Session{ID: "s1", Label: "prd"},

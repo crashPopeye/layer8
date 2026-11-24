@@ -23,7 +23,7 @@ import (
 const usage = `usage: l8 <command> [--json] ...
   l8 project add <path>
   l8 project list
-  l8 task create --title T [--parent <id|current>] [--project P] [--workflow freeform] [--prompt P] [--start] [--adopt DIR] [--autonomous]
+  l8 task create --title T [--parent <id|current>] [--project P] [--workflow freeform] [--prompt P] [--start] [--auto-advance] [--adopt DIR] [--autonomous]
   l8 task list [--project P] [--parent <id|current>] [--status active|done|archived]
   l8 task show <id|slug|current>
   l8 task done <id|slug|current>
@@ -36,6 +36,7 @@ const usage = `usage: l8 <command> [--json] ...
   l8 artifact list [--task <id|current|parent>]
   l8 artifact read [--task <id|current|parent>] <path>
   l8 artifact write [--task <id|current|parent>] <path> < content
+  l8 phase next [--task <id|current>]
 
 "current" is the task or session this command runs in (L8_TASK_ID, L8_SESSION_ID);
 "parent" is the current task's parent task. --json prints the result as JSON.
@@ -84,6 +85,7 @@ var commands = map[string]command{
 	"artifact list":  artifactList,
 	"artifact read":  artifactRead,
 	"artifact write": artifactWrite,
+	"phase next":     phaseNext,
 }
 
 func main() {
@@ -146,7 +148,8 @@ func taskCreate(c *client.Client, out printer, args []string) error {
 	fs.StringVar(&in.Title, "title", "", "task title")
 	fs.StringVar(&in.Workflow, "workflow", "freeform", strings.Join(task.Workflows, "|"))
 	fs.StringVar(&in.Prompt, "prompt", "", "what the task is about; written to task.md and, with --start, sent to its first session")
-	fs.BoolVar(&in.Start, "start", false, "start the task's first session")
+	fs.BoolVar(&in.Start, "start", false, "start the task's first session: its workflow's first phase, or --prompt for freeform")
+	fs.BoolVar(&in.AutoAdvance, "auto-advance", false, "start each next workflow phase as soon as the previous one is done")
 	fs.StringVar(&in.AdoptPath, "adopt", "", "use this existing worktree instead of creating one")
 	fs.BoolVar(&in.Autonomous, "autonomous", false, "agents answer their own questions (sub-tasks inherit it)")
 	if _, err := parse(fs, args); err != nil {
@@ -238,10 +241,13 @@ func taskShow(c *client.Client, out printer, args []string) error {
 		rows := [][]string{
 			{"title", t.Title}, {"id", t.ID}, {"slug", t.Slug}, {"status", t.Status}, {"workflow", t.Workflow},
 			{"branch", t.Branch}, {"base", t.BaseRef}, {"worktree", t.Worktree}, {"artifacts", t.ArtifactsDir},
-			{"autonomous", fmt.Sprint(t.Autonomous)},
+			{"autonomous", fmt.Sprint(t.Autonomous)}, {"auto-advance", fmt.Sprint(t.AutoAdvance)},
 		}
 		if t.ParentID != "" {
 			rows = append(rows, []string{"parent", t.ParentID})
+		}
+		if len(t.Phases) > 0 {
+			rows = append(rows, []string{"phases", phaseRail(t)})
 		}
 		table(w, rows)
 		fmt.Fprintf(w, "\n%s", t.TaskMD)
@@ -263,6 +269,42 @@ func taskStatus(status string) command {
 		}
 		return out.print(t, func(w io.Writer) { fmt.Fprintf(w, "%s is %s\n", t.Slug, t.Status) })
 	}
+}
+
+// phaseRail renders a task's phases on one line: done ones with ✓, the current one in brackets.
+func phaseRail(t task.Detail) string {
+	parts := make([]string, len(t.Phases))
+	for i, p := range t.Phases {
+		parts[i] = p.Name
+		if p.Done {
+			parts[i] += " ✓"
+		}
+		if p.Name == t.Phase {
+			parts[i] = "[" + parts[i] + "]"
+		}
+	}
+	rail := strings.Join(parts, " → ")
+	if t.Next != "" {
+		rail += "   (next: " + t.Next + ", start it with l8 phase next)"
+	}
+	return rail
+}
+
+func phaseNext(c *client.Client, out printer, args []string) error {
+	fs := flag.NewFlagSet("phase next", flag.ContinueOnError)
+	taskRef := fs.String("task", "current", "task id, slug or current")
+	if _, err := parse(fs, args); err != nil {
+		return err
+	}
+	ref, err := current(*taskRef, "L8_TASK_ID")
+	if err != nil {
+		return err
+	}
+	s, err := c.NextPhase(ref)
+	if err != nil {
+		return err
+	}
+	return out.print(s, func(w io.Writer) { fmt.Fprintf(w, "started %s (%s), %s\n", s.ID, s.Label, s.Status) })
 }
 
 // findProject resolves a project by id, name or path; an empty ref means the only project.

@@ -17,12 +17,40 @@ A sub-task is a full task with a parent. Its branch starts from the head of the 
 
 | Command | Effect |
 |---|---|
-| `l8 task create --title T [--parent <id\|current>] [--workflow freeform] [--prompt P] [--start] [--autonomous] [--project P] [--adopt DIR]` | New task, or sub-task with `--parent`, on branch `l8/<slug>`. `--prompt` goes to its `task.md`; `--start` also starts its first session with that prompt |
+| `l8 task create --title T [--parent <id\|current>] [--workflow freeform] [--prompt P] [--start] [--auto-advance] [--autonomous] [--project P] [--adopt DIR]` | New task, or sub-task with `--parent`, on branch `l8/<slug>`. `--prompt` goes to its `task.md`; `--start` also starts its first session (below) |
 | `l8 task list [--project P] [--parent <id\|current>] [--status active\|done\|archived]` | Tasks, newest first: slug, status, workflow, branch, title. `--parent current` lists this task's sub-tasks |
-| `l8 task show <id\|slug\|current>` | Id, branch, base, worktree, artifacts folder, parent and `task.md` |
+| `l8 task show <id\|slug\|current>` | Id, branch, base, worktree, artifacts folder, parent, workflow phases and `task.md` |
 | `l8 task done <id\|current>` / `l8 task archive <id\|current>` | Close a task. Its worktree and branch stay |
 
-Workflows: `freeform`, `oneshot`, `outline_only`, `prd_tdd`, `rpi`. A started task's first session is labelled after the workflow's first phase: `implement` for `oneshot`, `research-questions` for `prd_tdd` and `rpi`, `research` for `outline_only`, `session` for `freeform`.
+## Workflows and phases
+
+A workflow is a chain of phases. Each phase runs in its own session, labelled with the phase name, whose first message is the phase's skill pointed at `.layer8/task/`. A phase is done when its artifact (a Markdown file whose frontmatter `type` is listed below) is in `.layer8/task/`, when the worktree has changes (`implement`), or when the task has a PR (`pr`).
+
+| Workflow | Phases |
+|---|---|
+| `rpi` | research-questions → research → design-discussion → outline → plan → implement → pr |
+| `prd_tdd` | research-questions → research → prd → tdd → outline → implement → pr |
+| `outline_only` | research → outline → implement → pr |
+| `oneshot` | implement (the task's prompt) → pr |
+| `freeform` | none: `--start` sends the prompt to a session labelled `session` |
+
+| Phase | Skill | Artifact `type` |
+|---|---|---|
+| research-questions | `/l8:create-research-questions` | `research-questions` |
+| research | `/l8:create-research` | `research` |
+| design-discussion | `/l8:create-design-discussion` | `design-discussion` |
+| prd | `/l8:create-prd` | `design-prd` |
+| tdd | `/l8:create-tdd` | `design-tdd` |
+| outline | `/l8:create-structure-outline` | `structure-outline` |
+| plan | `/l8:create-plan` | `plan` |
+| implement | `/l8:implement-outline` (`rpi`: `/l8:implement-plan`) | none |
+| pr | `/l8:describe-pr` | none |
+
+When a phase is done and its session goes idle, the app offers the next phase on the task's phase rail; with `--auto-advance` it starts it on its own.
+
+| Command | Effect |
+|---|---|
+| `l8 phase next [--task <id\|current>]` | Start the next phase's session now, whether or not the current phase is done |
 
 ## Sessions
 

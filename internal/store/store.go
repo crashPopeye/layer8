@@ -285,8 +285,10 @@ func (s *Store) ListTasks(f TaskFilter) ([]Task, error) {
 	return tasks, rows.Err()
 }
 
-func (s *Store) SetTaskStatus(id, status string) error {
-	res, err := s.db.Exec(`UPDATE tasks SET status = ? WHERE id = ?`, status, id)
+// UpdateTask writes a task's status, phase, auto-advance and autonomy.
+func (s *Store) UpdateTask(t Task) error {
+	res, err := s.db.Exec(`UPDATE tasks SET status = ?, phase = ?, auto_advance = ?, autonomous = ? WHERE id = ?`,
+		t.Status, t.Phase, t.AutoAdvance, t.Autonomous, t.ID)
 	if err != nil {
 		return err
 	}

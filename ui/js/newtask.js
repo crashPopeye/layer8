@@ -6,7 +6,7 @@ const workflows = ["freeform", "oneshot", "outline_only", "prd_tdd", "rpi"];
 /** NewTask is the dialog that creates a task in project, or a sub-task of parent; it calls
  * onCreated with the new task and, when started, its first session. */
 export function NewTask({ project, parent, onClose, onCreated }) {
-  const [form, setForm] = useState({ title: "", workflow: "freeform", prompt: "", autonomous: !!parent?.autonomous, start: false });
+  const [form, setForm] = useState({ title: "", workflow: "freeform", prompt: "", autonomous: !!parent?.autonomous, autoAdvance: false, start: false });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.type === "checkbox" ? e.target.checked : e.target.value });
@@ -42,7 +42,11 @@ export function NewTask({ project, parent, onClose, onCreated }) {
       </label>
       <label class="field"><span class="lbl">Prompt</span><textarea value=${form.prompt} onInput=${set("prompt")} placeholder="What should be done? Written to task.md."></textarea></label>
       <label class="check"><input type="checkbox" checked=${form.autonomous} onChange=${set("autonomous")} /> Autonomous: agents answer their own questions</label>
-      <label class="check"><input type="checkbox" checked=${form.start} onChange=${set("start")} /> Start a session with the prompt</label>
+      ${form.workflow !== "freeform" &&
+      html`<label class="check"><input type="checkbox" checked=${form.autoAdvance} onChange=${set("autoAdvance")} /> Auto-advance: start each next phase as soon as the previous one is done</label>`}
+      <label class="check"
+        ><input type="checkbox" checked=${form.start} onChange=${set("start")} /> ${form.workflow === "freeform" ? "Start a session with the prompt" : "Start the first phase"}</label
+      >
       <div class="btns">
         ${error && html`<span class="err">${error}</span>`}
         <button type="button" onClick=${onClose}>Cancel</button>
