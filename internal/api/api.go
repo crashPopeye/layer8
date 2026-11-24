@@ -49,6 +49,7 @@ func New(st *store.Store, hub *Hub, tasks *task.Service, sessions *session.Manag
 	mux.HandleFunc("POST /api/tasks", s.createTask)
 	mux.HandleFunc("GET /api/tasks/{id}", s.getTask)
 	mux.HandleFunc("PUT /api/tasks/{id}", s.updateTask)
+	mux.HandleFunc("GET /api/sessions", s.activeSessions)
 	mux.HandleFunc("GET /api/tasks/{id}/sessions", s.listSessions)
 	mux.HandleFunc("POST /api/tasks/{id}/sessions", s.startSession)
 	mux.HandleFunc("GET /api/sessions/{id}/events", s.listEvents)
@@ -150,7 +151,7 @@ func (s *server) updateProject(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) listTasks(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	tasks, err := s.store.ListTasks(store.TaskFilter{ProjectID: q.Get("project"), Status: q.Get("status")})
+	tasks, err := s.store.ListTasks(store.TaskFilter{ProjectID: q.Get("project"), ParentID: q.Get("parent"), Status: q.Get("status")})
 	reply(w, tasks, err)
 }
 
@@ -177,6 +178,11 @@ func (s *server) updateTask(w http.ResponseWriter, r *http.Request) {
 	}
 	t, err := s.tasks.SetStatus(r.PathValue("id"), in.Status)
 	reply(w, t, err)
+}
+
+func (s *server) activeSessions(w http.ResponseWriter, r *http.Request) {
+	sessions, err := s.store.ActiveTaskSessions()
+	reply(w, sessions, err)
 }
 
 func (s *server) listSessions(w http.ResponseWriter, r *http.Request) {

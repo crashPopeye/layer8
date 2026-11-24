@@ -49,7 +49,7 @@ func service(t *testing.T) *Service {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { st.Close() })
-	return NewService(st, gitx.Git{}, home, func(kind, id string) {})
+	return NewService(st, gitx.Git{}, home, func(kind, id string) {}, nil)
 }
 
 func TestCreate(t *testing.T) {
@@ -113,6 +113,71 @@ func TestCreate(t *testing.T) {
 	exclude, _ = os.ReadFile(filepath.Join(clone, ".git", "info", "exclude"))
 	if n := strings.Count(string(exclude), ".layer8/"); n != 1 {
 		t.Fatalf(".layer8/ appears %d times in exclude", n)
+	}
+}
+
+func TestSubtaskBranchesFromParent(t *testing.T) {
+	ctx := context.Background()
+	svc := service(t)
+	clone := repo(t)
+	p, err := svc.AddProject(ctx, clone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	instructions := "Use Golang as much as possible wherever it is possible and relevant."
+	if _, err := svc.UpdateProject(p.ID, ProjectUpdate{Instructions: &instructions}); err != nil {
+		t.Fatal(err)
+	}
+	parent, err := svc.Create(ctx, CreateInput{ProjectID: p.ID, Title: "Local agent desktop", Autonomous: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(parent.Worktree, "prd.go"), []byte("package prd\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git(t, parent.Worktree, "add", "prd.go")
+	git(t, parent.Worktree, "commit", "-qm", "parent work")
+	if err := os.WriteFile(filepath.Join(svc.ArtifactsDir(parent.ID), "03-prd.md"), []byte("# PRD\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	sub, err := svc.Create(ctx, CreateInput{ParentID: parent.Slug, Title: "Session runtime (Go)", Workflow: "oneshot"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sub.ParentID != parent.ID || sub.ProjectID != p.ID || sub.BaseRef != parent.Branch || !sub.Autonomous || sub.Session != nil {
+		t.Fatalf("sub-task = %+v", sub)
+	}
+	if head, want := git(t, sub.Worktree, "rev-parse", "HEAD"), git(t, parent.Worktree, "rev-parse", "HEAD"); head != want {
+		t.Fatalf("sub-task HEAD %s, parent branch head %s", head, want)
+	}
+	if got := git(t, sub.Worktree, "branch", "--show-current"); got != "l8/session-runtime-go" {
+		t.Fatalf("sub-task branch = %q", got)
+	}
+	prd, err := os.ReadFile(filepath.Join(sub.Worktree, LinkPath, ParentLink, "03-prd.md"))
+	if err != nil || string(prd) != "# PRD\n" {
+		t.Fatalf("parent artifact through the link = %q, %v", prd, err)
+	}
+	if target, _ := os.Readlink(filepath.Join(svc.ArtifactsDir(sub.ID), ParentLink)); target != filepath.Join("..", parent.ID) {
+		t.Fatalf("parent link -> %q", target)
+	}
+	md, _ := os.ReadFile(filepath.Join(svc.ArtifactsDir(sub.ID), "task.md"))
+	if !strings.Contains(string(md), "## Instructions\n\n"+instructions) {
+		t.Fatalf("sub-task task.md = %q", md)
+	}
+	if artifacts, _ := svc.Artifacts(sub.ID); len(artifacts) != 1 || artifacts[0].Path != "task.md" {
+		t.Fatalf("sub-task artifacts = %+v", artifacts)
+	}
+
+	other, err := svc.AddProject(ctx, repo(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Create(ctx, CreateInput{ProjectID: other.ID, ParentID: parent.ID, Title: "Elsewhere"}); err == nil {
+		t.Fatal("a sub-task in another project was created")
+	}
+	if _, err := svc.Create(ctx, CreateInput{ParentID: parent.ID, Title: "Started", Start: true}); err == nil {
+		t.Fatal("Start without sessions succeeded")
 	}
 }
 

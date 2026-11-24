@@ -166,6 +166,7 @@ type Task struct {
 // TaskFilter narrows ListTasks; empty fields match everything.
 type TaskFilter struct {
 	ProjectID string
+	ParentID  string
 	Status    string
 }
 
@@ -257,6 +258,9 @@ func (s *Store) ListTasks(f TaskFilter) ([]Task, error) {
 	var args []any
 	if f.ProjectID != "" {
 		where, args = append(where, "project_id = ?"), append(args, f.ProjectID)
+	}
+	if f.ParentID != "" {
+		where, args = append(where, "parent_id = ?"), append(args, f.ParentID)
 	}
 	if f.Status != "" {
 		where, args = append(where, "status = ?"), append(args, f.Status)

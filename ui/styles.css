@@ -53,6 +53,9 @@ aside .add input { flex: 1; min-width: 0; }
 .row.done, .row.archived { color: var(--terminal-fg-dim); }
 .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--terminal-border); }
 .dot.active { background: var(--terminal-success); }
+.row.sess { color: var(--terminal-fg-dim); font-size: 12px; }
+.row.sess.sel { color: var(--terminal-fg); }
+.badge { font: 600 10px var(--mono); padding: 0 5px; background: var(--terminal-warning); color: var(--terminal-bg); }
 .tag { font-size: 10px; border: 1px solid var(--terminal-border); padding: 0 4px; color: var(--terminal-fg-dim); }
 aside .foot { margin-top: auto; padding-top: 10px; }
 aside .foot label { display: flex; gap: 6px; align-items: center; font-size: 12px; color: var(--terminal-fg-dim); }

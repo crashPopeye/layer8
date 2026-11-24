@@ -52,9 +52,10 @@ func handler(t *testing.T) http.Handler {
 	}
 	t.Cleanup(func() { st.Close() })
 	hub := api.NewHub()
-	tasks := task.NewService(st, gitx.Git{}, home, hub.Notify)
+	sessions := session.NewManager(st, hub.Publish, echoSpawner, session.Config{ArtifactsRoot: filepath.Join(home, "artifacts")})
+	tasks := task.NewService(st, gitx.Git{}, home, hub.Notify, sessions)
 	ui := fstest.MapFS{"index.html": {Data: []byte("<!doctype html>")}}
-	return api.New(st, hub, tasks, session.NewManager(st, hub.Publish, echoSpawner, session.Config{ArtifactsRoot: filepath.Join(home, "artifacts")}), token, ui)
+	return api.New(st, hub, tasks, sessions, token, ui)
 }
 
 func TestGuard(t *testing.T) {
@@ -236,6 +237,11 @@ func TestSessionThroughClient(t *testing.T) {
 	listed, err := c.Sessions(created.ID)
 	if err != nil || len(listed) != 1 || listed[0].Status != "ready_for_input" || listed[0].CostUSD != 0.5 {
 		t.Fatalf("sessions = %+v, %v", listed, err)
+	}
+	var active []store.Session
+	get(t, srv.URL+"/api/sessions", &active)
+	if len(active) != 1 || active[0].ID != s.ID {
+		t.Fatalf("active task sessions = %+v", active)
 	}
 	if err := c.Stop(s.ID); err != nil {
 		t.Fatal(err)

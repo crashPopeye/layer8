@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -19,11 +20,11 @@ import (
 	"github.com/crashPopeye/layer8/internal/task"
 )
 
-const usage = `usage:
+const usage = `usage: l8 <command> [--json] ...
   l8 project add <path>
   l8 project list
-  l8 task create --title T [--project P] [--workflow freeform] [--prompt P] [--adopt DIR] [--autonomous]
-  l8 task list [--project P] [--status active|done|archived]
+  l8 task create --title T [--parent <id|current>] [--project P] [--workflow freeform] [--prompt P] [--start] [--adopt DIR] [--autonomous]
+  l8 task list [--project P] [--parent <id|current>] [--status active|done|archived]
   l8 task show <id|slug|current>
   l8 task done <id|slug|current>
   l8 task archive <id|slug|current>
@@ -37,10 +38,35 @@ const usage = `usage:
   l8 artifact write [--task <id|current|parent>] <path> < content
 
 "current" is the task or session this command runs in (L8_TASK_ID, L8_SESSION_ID);
-"parent" is the current task's parent task.
+"parent" is the current task's parent task. --json prints the result as JSON.
 `
 
-type command func(c *client.Client, out io.Writer, args []string) error
+type command func(c *client.Client, out printer, args []string) error
+
+// printer writes a command's result as JSON or as the command's text.
+type printer struct {
+	w    io.Writer
+	json bool
+}
+
+func (p printer) print(v any, text func(w io.Writer)) error {
+	if p.json {
+		enc := json.NewEncoder(p.w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(v)
+	}
+	text(p.w)
+	return nil
+}
+
+// table prints rows as aligned columns.
+func table(w io.Writer, rows [][]string) {
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	for _, r := range rows {
+		fmt.Fprintln(tw, strings.Join(r, "\t"))
+	}
+	tw.Flush()
+}
 
 var commands = map[string]command{
 	"project add":    projectAdd,
@@ -65,9 +91,17 @@ func main() {
 		fmt.Fprint(os.Stderr, usage)
 		os.Exit(2)
 	}
+	out := printer{w: os.Stdout}
+	args := slices.DeleteFunc(slices.Clone(os.Args[3:]), func(a string) bool {
+		if a == "--json" || a == "-json" {
+			out.json = true
+			return true
+		}
+		return false
+	})
 	c, err := client.FromEnv()
 	if err == nil {
-		err = commands[os.Args[1]+" "+os.Args[2]](c, os.Stdout, os.Args[3:])
+		err = commands[os.Args[1]+" "+os.Args[2]](c, out, args)
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "l8:", err)
@@ -75,7 +109,7 @@ func main() {
 	}
 }
 
-func projectAdd(c *client.Client, out io.Writer, args []string) error {
+func projectAdd(c *client.Client, out printer, args []string) error {
 	if len(args) != 1 {
 		return errors.New("usage: l8 project add <path>")
 	}
@@ -87,39 +121,50 @@ func projectAdd(c *client.Client, out io.Writer, args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(out, "added %s (%s, base %s)\n", p.Name, p.Path, p.BaseBranch)
-	return nil
+	return out.print(p, func(w io.Writer) { fmt.Fprintf(w, "added %s (%s, base %s)\n", p.Name, p.Path, p.BaseBranch) })
 }
 
-func projectList(c *client.Client, out io.Writer, args []string) error {
+func projectList(c *client.Client, out printer, args []string) error {
 	projects, err := c.Projects()
 	if err != nil {
 		return err
 	}
-	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-	for _, p := range projects {
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", p.Name, p.BaseBranch, p.Path, p.ID)
-	}
-	return w.Flush()
+	return out.print(projects, func(w io.Writer) {
+		var rows [][]string
+		for _, p := range projects {
+			rows = append(rows, []string{p.Name, p.BaseBranch, p.Path, p.ID})
+		}
+		table(w, rows)
+	})
 }
 
-func taskCreate(c *client.Client, out io.Writer, args []string) error {
+func taskCreate(c *client.Client, out printer, args []string) error {
 	fs := flag.NewFlagSet("task create", flag.ContinueOnError)
 	var in task.CreateInput
-	project := fs.String("project", "", "project id, name or path (default: the only project)")
+	project := fs.String("project", "", "project id, name or path (default: the parent's project, else the only project)")
+	parent := fs.String("parent", "", "make it a sub-task of this task (id, slug or current)")
 	fs.StringVar(&in.Title, "title", "", "task title")
 	fs.StringVar(&in.Workflow, "workflow", "freeform", strings.Join(task.Workflows, "|"))
-	fs.StringVar(&in.Prompt, "prompt", "", "what the task is about; written to task.md")
+	fs.StringVar(&in.Prompt, "prompt", "", "what the task is about; written to task.md and, with --start, sent to its first session")
+	fs.BoolVar(&in.Start, "start", false, "start the task's first session")
 	fs.StringVar(&in.AdoptPath, "adopt", "", "use this existing worktree instead of creating one")
-	fs.BoolVar(&in.Autonomous, "autonomous", false, "agents answer their own questions")
-	if err := fs.Parse(args); err != nil {
+	fs.BoolVar(&in.Autonomous, "autonomous", false, "agents answer their own questions (sub-tasks inherit it)")
+	if _, err := parse(fs, args); err != nil {
 		return err
 	}
-	p, err := findProject(c, *project)
-	if err != nil {
-		return err
+	var err error
+	if *parent != "" {
+		if in.ParentID, err = current(*parent, "L8_TASK_ID"); err != nil {
+			return err
+		}
 	}
-	in.ProjectID = p.ID
+	if *project != "" || in.ParentID == "" {
+		p, err := findProject(c, *project)
+		if err != nil {
+			return err
+		}
+		in.ProjectID = p.ID
+	}
 	if in.AdoptPath != "" {
 		if in.AdoptPath, err = filepath.Abs(in.AdoptPath); err != nil {
 			return err
@@ -129,15 +174,20 @@ func taskCreate(c *client.Client, out io.Writer, args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(out, "created %s on %s at %s\n", t.Slug, t.Branch, t.Worktree)
-	return nil
+	return out.print(t, func(w io.Writer) {
+		fmt.Fprintf(w, "created %s (%s) on %s at %s\n", t.Slug, t.ID, t.Branch, t.Worktree)
+		if t.Session != nil {
+			fmt.Fprintf(w, "session %s (%s) %s\n", t.Session.ID, t.Session.Label, t.Session.Status)
+		}
+	})
 }
 
-func taskList(c *client.Client, out io.Writer, args []string) error {
+func taskList(c *client.Client, out printer, args []string) error {
 	fs := flag.NewFlagSet("task list", flag.ContinueOnError)
 	project := fs.String("project", "", "project id, name or path")
+	parent := fs.String("parent", "", "only sub-tasks of this task (id, slug or current)")
 	status := fs.String("status", "", strings.Join(task.Statuses, "|"))
-	if err := fs.Parse(args); err != nil {
+	if _, err := parse(fs, args); err != nil {
 		return err
 	}
 	f := store.TaskFilter{Status: *status}
@@ -148,18 +198,31 @@ func taskList(c *client.Client, out io.Writer, args []string) error {
 		}
 		f.ProjectID = p.ID
 	}
+	if *parent != "" {
+		ref, err := current(*parent, "L8_TASK_ID")
+		if err != nil {
+			return err
+		}
+		pt, err := c.Task(ref)
+		if err != nil {
+			return err
+		}
+		f.ParentID = pt.ID
+	}
 	tasks, err := c.Tasks(f)
 	if err != nil {
 		return err
 	}
-	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-	for _, t := range tasks {
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", t.Slug, t.Status, t.Workflow, t.Branch, t.Title)
-	}
-	return w.Flush()
+	return out.print(tasks, func(w io.Writer) {
+		var rows [][]string
+		for _, t := range tasks {
+			rows = append(rows, []string{t.Slug, t.Status, t.Workflow, t.Branch, t.Title})
+		}
+		table(w, rows)
+	})
 }
 
-func taskShow(c *client.Client, out io.Writer, args []string) error {
+func taskShow(c *client.Client, out printer, args []string) error {
 	if len(args) != 1 {
 		return errors.New("usage: l8 task show <id|slug>")
 	}
@@ -171,22 +234,22 @@ func taskShow(c *client.Client, out io.Writer, args []string) error {
 	if err != nil {
 		return err
 	}
-	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-	for _, kv := range [][2]string{
-		{"title", t.Title}, {"id", t.ID}, {"slug", t.Slug}, {"status", t.Status}, {"workflow", t.Workflow},
-		{"branch", t.Branch}, {"base", t.BaseRef}, {"worktree", t.Worktree}, {"artifacts", t.ArtifactsDir},
-	} {
-		fmt.Fprintf(w, "%s\t%s\n", kv[0], kv[1])
-	}
-	if err := w.Flush(); err != nil {
-		return err
-	}
-	fmt.Fprintf(out, "\n%s", t.TaskMD)
-	return nil
+	return out.print(t, func(w io.Writer) {
+		rows := [][]string{
+			{"title", t.Title}, {"id", t.ID}, {"slug", t.Slug}, {"status", t.Status}, {"workflow", t.Workflow},
+			{"branch", t.Branch}, {"base", t.BaseRef}, {"worktree", t.Worktree}, {"artifacts", t.ArtifactsDir},
+			{"autonomous", fmt.Sprint(t.Autonomous)},
+		}
+		if t.ParentID != "" {
+			rows = append(rows, []string{"parent", t.ParentID})
+		}
+		table(w, rows)
+		fmt.Fprintf(w, "\n%s", t.TaskMD)
+	})
 }
 
 func taskStatus(status string) command {
-	return func(c *client.Client, out io.Writer, args []string) error {
+	return func(c *client.Client, out printer, args []string) error {
 		if len(args) != 1 {
 			return errors.New("usage: l8 task done|archive <id|slug>")
 		}
@@ -198,8 +261,7 @@ func taskStatus(status string) command {
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(out, "%s is %s\n", t.Slug, t.Status)
-		return nil
+		return out.print(t, func(w io.Writer) { fmt.Fprintf(w, "%s is %s\n", t.Slug, t.Status) })
 	}
 }
 
@@ -224,7 +286,7 @@ func findProject(c *client.Client, ref string) (store.Project, error) {
 	return store.Project{}, fmt.Errorf("no project %q", ref)
 }
 
-func sessionStart(c *client.Client, out io.Writer, args []string) error {
+func sessionStart(c *client.Client, out printer, args []string) error {
 	fs := flag.NewFlagSet("session start", flag.ContinueOnError)
 	taskRef := fs.String("task", "current", "task id, slug or current")
 	var in session.StartInput
@@ -244,11 +306,10 @@ func sessionStart(c *client.Client, out io.Writer, args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(out, "started %s (%s), %s\n", s.ID, s.Label, s.Status)
-	return nil
+	return out.print(s, func(w io.Writer) { fmt.Fprintf(w, "started %s (%s), %s\n", s.ID, s.Label, s.Status) })
 }
 
-func sessionList(c *client.Client, out io.Writer, args []string) error {
+func sessionList(c *client.Client, out printer, args []string) error {
 	fs := flag.NewFlagSet("session list", flag.ContinueOnError)
 	taskRef := fs.String("task", "current", "task id, slug or current")
 	if _, err := parse(fs, args); err != nil {
@@ -262,18 +323,26 @@ func sessionList(c *client.Client, out io.Writer, args []string) error {
 	if err != nil {
 		return err
 	}
-	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-	for _, s := range sessions {
-		status := s.Status
-		if s.Queued > 0 {
-			status += fmt.Sprintf(" (+%d queued)", s.Queued)
+	return out.print(sessions, func(w io.Writer) {
+		var rows [][]string
+		for _, s := range sessions {
+			status := s.Status
+			if s.Queued > 0 {
+				status += fmt.Sprintf(" (+%d queued)", s.Queued)
+			}
+			rows = append(rows, []string{s.ID, s.Label, status, fmt.Sprintf("$%.2f", s.CostUSD)})
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t$%.2f\n", s.ID, s.Label, status, s.CostUSD)
-	}
-	return w.Flush()
+		table(w, rows)
+	})
 }
 
-func sessionRead(c *client.Client, out io.Writer, args []string) error {
+// message is one turn of a conversation as l8 session read prints it.
+type message struct {
+	Role string `json:"role"`
+	Text string `json:"text"`
+}
+
+func sessionRead(c *client.Client, out printer, args []string) error {
 	fs := flag.NewFlagSet("session read", flag.ContinueOnError)
 	last := fs.Int("last", 20, "number of messages")
 	rest, err := parse(fs, args)
@@ -288,23 +357,31 @@ func sessionRead(c *client.Client, out io.Writer, args []string) error {
 	if err != nil {
 		return err
 	}
-	var messages []string
+	messages := []message{}
 	for _, e := range events {
 		var body struct{ Text string }
 		json.Unmarshal(e.Body, &body)
 		switch {
 		case e.Kind == "user":
-			messages = append(messages, "> "+body.Text)
+			messages = append(messages, message{"user", body.Text})
 		case e.Kind == "text" && e.ParentToolUseID == "":
-			messages = append(messages, body.Text)
+			messages = append(messages, message{"assistant", body.Text})
 		}
 	}
 	messages = messages[max(0, len(messages)-*last):]
-	fmt.Fprintln(out, strings.Join(messages, "\n\n"))
-	return nil
+	return out.print(messages, func(w io.Writer) {
+		texts := make([]string, len(messages))
+		for i, m := range messages {
+			texts[i] = m.Text
+			if m.Role == "user" {
+				texts[i] = "> " + m.Text
+			}
+		}
+		fmt.Fprintln(w, strings.Join(texts, "\n\n"))
+	})
 }
 
-func sessionSend(c *client.Client, out io.Writer, args []string) error {
+func sessionSend(c *client.Client, out printer, args []string) error {
 	if len(args) < 2 {
 		return errors.New("usage: l8 session send <id|current> <text>")
 	}
@@ -316,15 +393,16 @@ func sessionSend(c *client.Client, out io.Writer, args []string) error {
 	if err != nil {
 		return err
 	}
-	if queued {
-		fmt.Fprintln(out, "queued; it is sent when the current turn ends")
-	} else {
-		fmt.Fprintln(out, "sent")
-	}
-	return nil
+	return out.print(map[string]bool{"queued": queued}, func(w io.Writer) {
+		if queued {
+			fmt.Fprintln(w, "queued; it is sent when the current turn ends")
+		} else {
+			fmt.Fprintln(w, "sent")
+		}
+	})
 }
 
-func sessionStop(c *client.Client, out io.Writer, args []string) error {
+func sessionStop(c *client.Client, out printer, args []string) error {
 	id, err := sessionArg(args)
 	if err != nil {
 		return err
@@ -332,11 +410,10 @@ func sessionStop(c *client.Client, out io.Writer, args []string) error {
 	if err := c.Stop(id); err != nil {
 		return err
 	}
-	fmt.Fprintln(out, "stopped", id)
-	return nil
+	return out.print(map[string]string{"stopped": id}, func(w io.Writer) { fmt.Fprintln(w, "stopped", id) })
 }
 
-func artifactList(c *client.Client, out io.Writer, args []string) error {
+func artifactList(c *client.Client, out printer, args []string) error {
 	ref, rest, err := artifactArgs(c, "artifact list", args)
 	if err != nil {
 		return err
@@ -348,14 +425,16 @@ func artifactList(c *client.Client, out io.Writer, args []string) error {
 	if err != nil {
 		return err
 	}
-	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-	for _, a := range artifacts {
-		fmt.Fprintf(w, "%s\t%s\t%s\n", a.Path, a.Type, time.UnixMilli(a.ModTime).Format(time.DateTime))
-	}
-	return w.Flush()
+	return out.print(artifacts, func(w io.Writer) {
+		var rows [][]string
+		for _, a := range artifacts {
+			rows = append(rows, []string{a.Path, a.Type, time.UnixMilli(a.ModTime).Format(time.DateTime)})
+		}
+		table(w, rows)
+	})
 }
 
-func artifactRead(c *client.Client, out io.Writer, args []string) error {
+func artifactRead(c *client.Client, out printer, args []string) error {
 	ref, rest, err := artifactArgs(c, "artifact read", args)
 	if err != nil {
 		return err
@@ -367,11 +446,10 @@ func artifactRead(c *client.Client, out io.Writer, args []string) error {
 	if err != nil {
 		return err
 	}
-	_, err = out.Write(data)
-	return err
+	return out.print(map[string]string{"path": rest[0], "content": string(data)}, func(w io.Writer) { w.Write(data) })
 }
 
-func artifactWrite(c *client.Client, out io.Writer, args []string) error {
+func artifactWrite(c *client.Client, out printer, args []string) error {
 	ref, rest, err := artifactArgs(c, "artifact write", args)
 	if err != nil {
 		return err
@@ -383,8 +461,7 @@ func artifactWrite(c *client.Client, out io.Writer, args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(out, "wrote %s (%d bytes)\n", a.Path, a.Size)
-	return nil
+	return out.print(a, func(w io.Writer) { fmt.Fprintf(w, "wrote %s (%d bytes)\n", a.Path, a.Size) })
 }
 
 // artifactArgs parses --task and resolves it to a task id; it returns the positional arguments.

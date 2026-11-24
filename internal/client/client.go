@@ -120,6 +120,9 @@ func (c *Client) Tasks(f store.TaskFilter) ([]store.Task, error) {
 	if f.ProjectID != "" {
 		q.Set("project", f.ProjectID)
 	}
+	if f.ParentID != "" {
+		q.Set("parent", f.ParentID)
+	}
 	if f.Status != "" {
 		q.Set("status", f.Status)
 	}
@@ -133,8 +136,9 @@ func (c *Client) Task(idOrSlug string) (task.Detail, error) {
 	return t, c.do(http.MethodGet, "/api/tasks/"+url.PathEscape(idOrSlug), nil, &t)
 }
 
-func (c *Client) CreateTask(in task.CreateInput) (store.Task, error) {
-	var t store.Task
+// CreateTask creates a task or sub-task, with its first session when in.Start is set.
+func (c *Client) CreateTask(in task.CreateInput) (task.Created, error) {
+	var t task.Created
 	return t, c.do(http.MethodPost, "/api/tasks", in, &t)
 }
 

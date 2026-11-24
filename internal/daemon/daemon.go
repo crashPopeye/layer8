@@ -46,13 +46,13 @@ func Run(ctx context.Context, home, addr string) error {
 	}
 
 	hub := api.NewHub()
-	tasks := task.NewService(st, gitx.Git{}, home, hub.Notify)
 	sessions := session.NewManager(st, hub.Publish, session.Claude, session.Config{
 		PluginDir:     pluginDir,
 		ArtifactsRoot: filepath.Join(home, "artifacts"),
 		LogDir:        filepath.Join(home, "logs"),
 		Env:           sessionEnv(home, addr),
 	})
+	tasks := task.NewService(st, gitx.Git{}, home, hub.Notify, sessions)
 	srv := &http.Server{
 		Handler:     api.New(st, hub, tasks, sessions, token, ui.FS),
 		BaseContext: func(net.Listener) context.Context { return ctx },

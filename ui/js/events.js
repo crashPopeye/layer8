@@ -36,3 +36,19 @@ export function useSessions(taskId) {
   useEvents((e) => (e.kind === "open" || (e.kind === "session" && e.taskId === taskId)) && load());
   return sessions;
 }
+
+/** useActiveSessions lists the sessions of every active task, refetched (at most every 200 ms) as sessions and tasks change. */
+export function useActiveSessions() {
+  const [sessions, setSessions] = useState([]);
+  const timer = useRef(0);
+  const load = useCallback(() => {
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => get("/api/sessions").then(setSessions, () => {}), 200);
+  }, []);
+  useEffect(() => {
+    load();
+    return () => clearTimeout(timer.current);
+  }, [load]);
+  useEvents((e) => ["open", "session", "attention", "task"].includes(e.kind) && load());
+  return sessions;
+}

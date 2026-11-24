@@ -94,6 +94,12 @@ func (s *Store) Sessions(taskID string) ([]Session, error) {
 	return s.querySessions(`SELECT `+sessionCols+` FROM sessions WHERE task_id = ? ORDER BY created_at, id`, taskID)
 }
 
+// ActiveTaskSessions returns the sessions of every active task, oldest first.
+func (s *Store) ActiveTaskSessions() ([]Session, error) {
+	return s.querySessions(`SELECT ` + sessionCols + ` FROM sessions
+	  WHERE task_id IN (SELECT id FROM tasks WHERE status = 'active') ORDER BY created_at, id`)
+}
+
 // SessionsWithStatus returns every session in one of statuses, oldest first.
 func (s *Store) SessionsWithStatus(statuses ...string) ([]Session, error) {
 	args := make([]any, len(statuses))

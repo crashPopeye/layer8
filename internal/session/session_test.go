@@ -317,14 +317,37 @@ func TestParentGuard(t *testing.T) {
 		in, _ := json.Marshal(map[string]string{"file_path": path})
 		return claude.HookCall{CallbackID: parentGuard, Input: claude.HookInput{HookEventName: "PreToolUse", ToolName: "Write", ToolInput: in, Cwd: "/ws/child"}}
 	}
-	if r := guardParent("/h/artifacts/c", call(".layer8/task/parent/03-prd.md")); r.Deny == "" {
-		t.Fatal("write under parent/ allowed")
+	if r := guardParent("/h/artifacts/c", call(".layer8/task/parent/03-prd.md")); !strings.Contains(r.Deny, "use l8 artifact write --task <parent>") {
+		t.Fatalf("write under parent/ answered %+v", r)
 	}
 	if r := guardParent("/h/artifacts/c", call("/h/artifacts/c/parent/03-prd.md")); r.Deny == "" {
 		t.Fatal("write under the artifacts parent link allowed")
 	}
 	if r := guardParent("/h/artifacts/c", call(".layer8/task/notes.md")); r.Deny != "" {
 		t.Fatalf("own artifact denied: %s", r.Deny)
+	}
+}
+
+func TestParentGuardThroughTheHook(t *testing.T) {
+	f := newFixture(t)
+	if _, err := f.m.Start(context.Background(), "t1", StartInput{Prompt: "edit the prd"}); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(f.procs[0].opts.Hooks, func(h claude.HookMatcher) bool {
+		return h.Event == "PreToolUse" && h.ID == parentGuard && strings.Contains(h.Matcher, "Write")
+	}) {
+		t.Fatalf("hooks = %+v", f.procs[0].opts.Hooks)
+	}
+	write := func(path string) claude.HookResult {
+		in, _ := json.Marshal(map[string]string{"file_path": path})
+		return f.procs[0].h.OnHook(claude.HookCall{CallbackID: parentGuard,
+			Input: claude.HookInput{HookEventName: "PreToolUse", ToolName: "Write", ToolInput: in, Cwd: f.task.Worktree}})
+	}
+	if r := write(".layer8/task/parent/03-prd.md"); r.Deny == "" {
+		t.Fatal("Write to the parent's PRD allowed")
+	}
+	if r := write(".layer8/task/notes.md"); r.Deny != "" {
+		t.Fatalf("Write to notes.md denied: %s", r.Deny)
 	}
 }
 

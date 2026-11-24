@@ -1,6 +1,6 @@
 import { html, render, useState, useEffect, useCallback } from "/vendor/preact-htm.js";
 import { get, put } from "./api.js";
-import { useEvents, useSessions } from "./events.js";
+import { useEvents, useSessions, useActiveSessions } from "./events.js";
 import { Sidebar, home } from "./side.js";
 import { NewTask } from "./newtask.js";
 import { SessionView, NewSession, StatusDot } from "./conversation.js";
@@ -38,9 +38,10 @@ function useLive() {
   return { ...data, signedIn, tick };
 }
 
-function TaskDetails({ task }) {
+function TaskDetails({ task, parent }) {
   return html`<div class="body">
     <dl class="kv">
+      ${parent && html`<dt>parent</dt><dd><a href=${`#/task/${parent.id}`}>${parent.title}</a> · .layer8/task/parent/</dd>`}
       <dt>worktree</dt><dd title=${task.worktree}>${home(task.worktree)}</dd>
       <dt>base</dt><dd>${task.baseRef}</dd>
       <dt>artifacts</dt><dd title=${task.artifactsDir}>${home(task.artifactsDir)}</dd>
@@ -51,7 +52,7 @@ function TaskDetails({ task }) {
   </div>`;
 }
 
-function TaskView({ id, sessionId, newSession, tick }) {
+function TaskView({ id, sessionId, newSession, tick, tasks, onNewSubtask }) {
   const [task, setTask] = useState(null);
   const [error, setError] = useState("");
   const sessions = useSessions(id);
@@ -72,7 +73,7 @@ function TaskView({ id, sessionId, newSession, tick }) {
       ${task.status !== "active" && html`<span class="tag">${task.status}</span>`}
       <div class="actions">
         ${task.status === "active"
-          ? html`<button onClick=${() => setStatus("done")}>Done</button><button onClick=${() => setStatus("archived")}>Archive</button>`
+          ? html`<button onClick=${() => onNewSubtask(task)}>＋ Sub-task</button><button onClick=${() => setStatus("done")}>Done</button><button onClick=${() => setStatus("archived")}>Archive</button>`
           : html`<button onClick=${() => setStatus("active")}>Reopen</button>`}
       </div>
     </header>
@@ -89,13 +90,14 @@ function TaskView({ id, sessionId, newSession, tick }) {
       ? html`<${NewSession} task=${task} onStarted=${(s) => go(id, `s/${s.id}`)} />`
       : session
         ? html`<${SessionView} key=${session.id} session=${session} />`
-        : html`<${TaskDetails} task=${task} />`}`;
+        : html`<${TaskDetails} task=${task} parent=${tasks.find((t) => t.id === task.parentId)} />`}`;
 }
 
 function App() {
   const { projects, tasks, signedIn, tick } = useLive();
+  const sessions = useActiveSessions();
   const [where, setWhere] = useState(route());
-  const [newTaskIn, setNewTaskIn] = useState(null);
+  const [newTask, setNewTask] = useState(null);
   const [wide, setWide] = useState(localStorage.getItem("panel") === "wide");
   const toggleWide = () => (localStorage.setItem("panel", wide ? "" : "wide"), setWide(!wide));
   useEffect(() => {
@@ -111,18 +113,34 @@ function App() {
     </div>`;
   }
   return html`<div class=${`app ${where.task ? "with-panel" : ""} ${wide ? "wide" : ""}`}>
-    <${Sidebar} projects=${projects} tasks=${tasks} selected=${where.task} onSelect=${(id) => go(id)} onNewTask=${setNewTaskIn} />
+    <${Sidebar}
+      projects=${projects}
+      tasks=${tasks}
+      sessions=${sessions}
+      selected=${where}
+      onSelect=${(id, sessionId) => go(id, sessionId ? `s/${sessionId}` : "")}
+      onNewTask=${(project) => setNewTask({ project })}
+    />
     <main>
       ${where.task
-        ? html`<${TaskView} key=${where.task} id=${where.task} sessionId=${where.session} newSession=${where.newSession} tick=${tick} />`
+        ? html`<${TaskView}
+            key=${where.task}
+            id=${where.task}
+            sessionId=${where.session}
+            newSession=${where.newSession}
+            tick=${tick}
+            tasks=${tasks}
+            onNewSubtask=${(parent) => setNewTask({ project: projects.find((p) => p.id === parent.projectId), parent })}
+          />`
         : html`<div class="empty"><div class="lbl">No task selected</div><div>Pick a task, or press ＋ next to a project to start one.</div></div>`}
     </main>
     ${where.task && html`<${RightPanel} taskId=${where.task} wide=${wide} onWide=${toggleWide} />`}
-    ${newTaskIn &&
+    ${newTask &&
     html`<${NewTask}
-      project=${newTaskIn}
-      onClose=${() => setNewTaskIn(null)}
-      onCreated=${(t) => (setNewTaskIn(null), go(t.id, "new"))}
+      project=${newTask.project}
+      parent=${newTask.parent}
+      onClose=${() => setNewTask(null)}
+      onCreated=${(t) => (setNewTask(null), go(t.id, t.session ? `s/${t.session.id}` : "new"))}
     />`}
   </div>`;
 }
