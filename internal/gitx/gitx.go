@@ -14,7 +14,13 @@ import (
 type Git struct{}
 
 // Run runs git -C dir args and returns trimmed stdout, or an error carrying stderr.
-func (Git) Run(ctx context.Context, dir string, args ...string) (string, error) {
+func (g Git) Run(ctx context.Context, dir string, args ...string) (string, error) {
+	out, err := g.output(ctx, dir, args...)
+	return strings.TrimSpace(out), err
+}
+
+// output runs git -C dir args and returns its stdout as is.
+func (Git) output(ctx context.Context, dir string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "LC_ALL=C")
 	var stdout, stderr bytes.Buffer
@@ -26,7 +32,7 @@ func (Git) Run(ctx context.Context, dir string, args ...string) (string, error) 
 		}
 		return "", fmt.Errorf("git %s: %s", strings.Join(args, " "), msg)
 	}
-	return strings.TrimSpace(stdout.String()), nil
+	return stdout.String(), nil
 }
 
 // TopLevel returns the root of the working tree containing dir.

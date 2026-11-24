@@ -93,6 +93,16 @@ func TestRoundTrip(t *testing.T) {
 	if got, _ := s.Task("t1"); got != older {
 		t.Fatalf("after update = %+v", got)
 	}
+	older.PRNumber, older.PRURL, older.PRState, older.LastPushed = 142, "https://github.com/o/r/pull/142", "OPEN", "abc123"
+	if err := s.SetTaskPR("t1", 142, older.PRURL, "OPEN"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetTaskPushed("t1", "abc123"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.Task("t1"); got != older {
+		t.Fatalf("after PR = %+v", got)
+	}
 	if _, err := s.Task("nope"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("missing task err = %v", err)
 	}

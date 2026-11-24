@@ -71,12 +71,19 @@ func (s *Service) phaseBusy(t store.Task) bool {
 	return err != nil || slices.ContainsFunc(sessions, func(ss store.Session) bool { return ss.Label == t.Phase && ss.InTurn })
 }
 
-// PhaseCheck runs when one of a task's sessions goes idle; it advances the task's workflow.
+// PhaseCheck runs when one of a task's sessions goes idle: it picks up a PR the
+// session may have opened, then advances the task's workflow.
 func (s *Service) PhaseCheck(idle store.Session) {
+	ctx := context.Background()
+	if t, err := s.store.Task(idle.TaskID); err == nil && t.PRNumber == 0 && s.prWatched(ctx, t) {
+		if _, err := s.syncPR(ctx, t); err != nil {
+			log.Printf("task %s: PR status: %v", t.Slug, err)
+		}
+	}
 	s.phaseMu.Lock()
 	defer s.phaseMu.Unlock()
 	if t, err := s.store.Task(idle.TaskID); err == nil {
-		s.advance(context.Background(), t)
+		s.advance(ctx, t)
 	}
 }
 

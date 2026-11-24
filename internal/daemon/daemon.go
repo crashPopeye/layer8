@@ -65,6 +65,7 @@ func Run(ctx context.Context, home, addr string) error {
 	if err := sessions.Recover(ctx); err != nil {
 		log.Printf("recover sessions: %v", err)
 	}
+	go tasks.PollPRs(ctx, 3*time.Minute)
 	go func() {
 		<-ctx.Done()
 		shutdown, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)

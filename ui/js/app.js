@@ -145,7 +145,7 @@ function App() {
           />`
         : html`<div class="empty"><div class="lbl">No task selected</div><div>Pick a task, or press ＋ next to a project to start one.</div></div>`}
     </main>
-    ${where.task && html`<${RightPanel} taskId=${where.task} wide=${wide} onWide=${toggleWide} />`}
+    ${where.task && html`<${RightPanel} key=${where.task} taskId=${where.task} wide=${wide} onWide=${toggleWide} />`}
     ${newTask &&
     html`<${NewTask}
       project=${newTask.project}

@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/crashPopeye/layer8/internal/gh"
 	"github.com/crashPopeye/layer8/internal/gitx"
 	"github.com/crashPopeye/layer8/internal/session"
 	"github.com/crashPopeye/layer8/internal/store"
@@ -45,14 +46,18 @@ type Service struct {
 	home     string
 	notify   func(kind, id string)
 	sessions *session.Manager
+	gh       gh.CLI
 
 	phaseMu sync.Mutex
+
+	prMu   sync.Mutex
+	prSeen map[string]string
 }
 
 // NewService returns a Service keeping worktrees and artifacts under home; sessions
 // may be nil, which only disables starting a session with a new task.
 func NewService(st *store.Store, git gitx.Git, home string, notify func(kind, id string), sessions *session.Manager) *Service {
-	return &Service{store: st, git: git, home: home, notify: notify, sessions: sessions}
+	return &Service{store: st, git: git, home: home, notify: notify, sessions: sessions, prSeen: map[string]string{}}
 }
 
 // ArtifactsDir is the canonical artifacts folder of a task.

@@ -22,7 +22,7 @@ function ago(ms) {
 }
 
 /** useTaskList fetches path and refetches it on the daemon's kind events for the task. */
-function useTaskList(taskId, path, kind) {
+export function useTaskList(taskId, path, kind) {
   const [items, setItems] = useState([]);
   const load = useCallback(() => get(path).then(setItems, () => {}), [path]);
   useEffect(() => void load(), [load]);
@@ -184,22 +184,22 @@ function Text({ artifact }) {
   </div>`;
 }
 
-/** CommentForm writes a comment on a line, or on the whole file when line is 0. */
-function CommentForm({ taskId, path, at, onDone }) {
+/** CommentForm writes a comment on a line of an artifact or of the diff (target), or on the whole file when line is 0. */
+export function CommentForm({ taskId, target = "artifact", path, at, onDone }) {
   const [body, setBody] = useState("");
   const [error, setError] = useState("");
   const save = async (e) => {
     e && e.preventDefault();
     if (!body.trim()) return;
     try {
-      await post(`/api/tasks/${taskId}/comments`, { target: "artifact", path, line: at.line, quote: at.quote, body });
+      await post(`/api/tasks/${taskId}/comments`, { target, path, line: at.line, quote: at.quote, body });
       onDone();
     } catch (err) {
       setError(err.message);
     }
   };
   return html`<form class="comment-form" onSubmit=${save}>
-    <div class="lbl">${at.line ? `Comment on line ${at.line}` : "Comment on this file"}</div>
+    <div class="lbl">${at.line ? `Comment on ${target === "diff" ? path + ":" : "line "}${at.line}` : "Comment on this file"}</div>
     ${at.quote && html`<blockquote>${at.quote}</blockquote>`}
     <textarea
       autofocus
@@ -246,16 +246,16 @@ function Doc({ taskId, artifact, comments, onOpen }) {
   </div>`;
 }
 
-/** Comments lists a task's open artifact comments and sends them to a session of the task. */
-function Comments({ taskId, comments, onOpen }) {
+/** Comments lists a task's open comments on target (artifact or diff) and sends them to a session of the task. */
+export function Comments({ taskId, target = "artifact", comments, onOpen }) {
   const sessions = useSessions(taskId);
   const [sessionId, setSessionId] = useState("");
   const [error, setError] = useState("");
-  const open = comments.filter((c) => c.status === "open" && c.target === "artifact");
-  const target = sessionId || (sessions.length ? sessions[sessions.length - 1].id : "");
+  const open = comments.filter((c) => c.status === "open" && c.target === target);
+  const to = sessionId || (sessions.length ? sessions[sessions.length - 1].id : "");
   if (!open.length) return null;
   const send = (body) =>
-    post(`/api/tasks/${taskId}/comments/send`, { sessionId: target, ...body }).then(
+    post(`/api/tasks/${taskId}/comments/send`, { sessionId: to, ...body }).then(
       () => setError(""),
       (err) => setError(err.message),
     );
@@ -263,11 +263,11 @@ function Comments({ taskId, comments, onOpen }) {
     <div class="comments-head">
       <span class="lbl">${open.length} open comment${open.length > 1 ? "s" : ""}</span>
       <span class="spacer"></span>
-      <select value=${target} onChange=${(e) => setSessionId(e.target.value)} title="Session that receives the comments">
+      <select value=${to} onChange=${(e) => setSessionId(e.target.value)} title="Session that receives the comments">
         ${!sessions.length && html`<option value="">no session</option>`}
         ${sessions.map((s) => html`<option value=${s.id}>${s.label}</option>`)}
       </select>
-      <button class="primary" disabled=${!target} onClick=${() => send({ resolve: true })}>Send all & resolve</button>
+      <button class="primary" disabled=${!to} onClick=${() => send({ ids: open.map((c) => c.id), resolve: true })}>Send all & resolve</button>
     </div>
     ${error && html`<div class="err">${error}</div>`}
     ${open.map(
@@ -275,7 +275,7 @@ function Comments({ taskId, comments, onOpen }) {
         <div class="where mono" onClick=${() => onOpen(c.path)}>${c.path}${c.line ? `:${c.line}` : ""}</div>
         ${c.quote && html`<blockquote>${c.quote}</blockquote>`}
         <div class="note">${c.body}</div>
-        <div class="btns"><button disabled=${!target} onClick=${() => send({ ids: [c.id] })}>Send to agent</button></div>
+        <div class="btns"><button disabled=${!to} onClick=${() => send({ ids: [c.id] })}>Send to agent</button></div>
       </div>`,
     )}
   </div>`;
@@ -288,7 +288,7 @@ export function Artifacts({ taskId }) {
   const [selected, setSelected] = useState("");
   const current = artifacts.find((a) => a.path === selected) || artifacts[0];
   const counts = {};
-  for (const c of comments) if (c.status === "open") counts[c.path] = (counts[c.path] || 0) + 1;
+  for (const c of comments) if (c.status === "open" && c.target === "artifact") counts[c.path] = (counts[c.path] || 0) + 1;
   return html`<div class="artifacts">
     <div class="files">
       ${artifacts.map(
@@ -306,7 +306,7 @@ export function Artifacts({ taskId }) {
       key=${current.path}
       taskId=${taskId}
       artifact=${current}
-      comments=${comments.filter((c) => c.path === current.path)}
+      comments=${comments.filter((c) => c.target === "artifact" && c.path === current.path)}
       onOpen=${setSelected}
     />`}
     <${Comments} taskId=${taskId} comments=${comments} onOpen=${setSelected} />

@@ -37,6 +37,8 @@ var migrations = []string{
 	`CREATE TABLE comments (id TEXT PRIMARY KEY, task_id TEXT REFERENCES tasks, target TEXT, path TEXT, line INT,
 	  quote TEXT, body TEXT, status TEXT, created_at INT);
 	CREATE INDEX comments_task ON comments (task_id);`,
+	`ALTER TABLE tasks ADD COLUMN pr_state TEXT;
+	ALTER TABLE tasks ADD COLUMN last_pushed_sha TEXT;`,
 }
 
 type Store struct{ db *sql.DB }
@@ -160,6 +162,8 @@ type Task struct {
 	Autonomous  bool   `json:"autonomous"`
 	PRNumber    int    `json:"prNumber"`
 	PRURL       string `json:"prUrl"`
+	PRState     string `json:"prState"`
+	LastPushed  string `json:"lastPushedSha"`
 	CreatedAt   int64  `json:"createdAt"`
 }
 
@@ -218,13 +222,14 @@ func (s *Store) Projects() ([]Project, error) {
 
 const taskCols = `id, project_id, COALESCE(parent_id,''), slug, title, COALESCE(workflow,''), COALESCE(phase,''), status,
   COALESCE(branch,''), COALESCE(base_ref,''), COALESCE(worktree,''), COALESCE(ticket,''), COALESCE(ticket_url,''),
-  auto_advance, autonomous, COALESCE(pr_number,0), COALESCE(pr_url,''), created_at`
+  auto_advance, autonomous, COALESCE(pr_number,0), COALESCE(pr_url,''), COALESCE(pr_state,''),
+  COALESCE(last_pushed_sha,''), created_at`
 
 func scanTask(row interface{ Scan(...any) error }) (Task, error) {
 	var t Task
 	err := row.Scan(&t.ID, &t.ProjectID, &t.ParentID, &t.Slug, &t.Title, &t.Workflow, &t.Phase, &t.Status,
 		&t.Branch, &t.BaseRef, &t.Worktree, &t.Ticket, &t.TicketURL,
-		&t.AutoAdvance, &t.Autonomous, &t.PRNumber, &t.PRURL, &t.CreatedAt)
+		&t.AutoAdvance, &t.Autonomous, &t.PRNumber, &t.PRURL, &t.PRState, &t.LastPushed, &t.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return t, ErrNotFound
 	}
@@ -296,4 +301,16 @@ func (s *Store) UpdateTask(t Task) error {
 		return ErrNotFound
 	}
 	return nil
+}
+
+// SetTaskPR records a task's pull request and its state (OPEN, CLOSED or MERGED).
+func (s *Store) SetTaskPR(id string, number int, url, state string) error {
+	_, err := s.db.Exec(`UPDATE tasks SET pr_number = ?, pr_url = ?, pr_state = ? WHERE id = ?`, number, url, state, id)
+	return err
+}
+
+// SetTaskPushed records the commit last pushed from a task's branch.
+func (s *Store) SetTaskPushed(id, sha string) error {
+	_, err := s.db.Exec(`UPDATE tasks SET last_pushed_sha = ? WHERE id = ?`, sha, id)
+	return err
 }

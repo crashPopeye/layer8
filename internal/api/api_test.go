@@ -482,3 +482,41 @@ func call(t *testing.T, method, u string, in, out any) {
 		t.Fatal(err)
 	}
 }
+
+func TestChangesAndCommit(t *testing.T) {
+	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(t.TempDir(), "gitconfig"))
+	t.Setenv("GIT_AUTHOR_NAME", "t")
+	t.Setenv("GIT_AUTHOR_EMAIL", "t@t")
+	t.Setenv("GIT_COMMITTER_NAME", "t")
+	t.Setenv("GIT_COMMITTER_EMAIL", "t@t")
+	srv := httptest.NewServer(handler(t))
+	t.Cleanup(srv.Close)
+	c := client.New(srv.URL, token)
+	p, err := c.AddProject(repo(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err := c.CreateTask(task.CreateInput{ProjectID: p.ID, Title: "Notes"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(created.Worktree, "notes.md"), []byte("one\ntwo\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	base := srv.URL + "/api/tasks/" + created.ID
+	var changes gitx.Changes
+	get(t, base+"/changes", &changes)
+	if len(changes.Files) != 1 || changes.Files[0].NewPath != "notes.md" || changes.Files[0].Adds != 2 || changes.Base != "origin/main" {
+		t.Fatalf("changes = %+v", changes)
+	}
+	var committed struct{ SHA string }
+	post(t, base+"/commit", map[string]string{"message": "Add notes"}, &committed)
+	if len(committed.SHA) != 40 {
+		t.Fatalf("commit = %+v", committed)
+	}
+	var info task.PRInfo
+	get(t, base+"/pr", &info)
+	if info.PR != nil || info.Head != "l8/notes" || info.Target != "main" || !info.Unpushed || info.Dirty || info.Title != "Notes" {
+		t.Fatalf("pr info = %+v", info)
+	}
+}
