@@ -1,8 +1,9 @@
 import { html, render, useState, useEffect, useCallback, useRef } from "/vendor/preact-htm.js";
-import { get, put } from "./api.js";
+import { get, post, put } from "./api.js";
 import { useEvents, useSessions, useActiveSessions } from "./events.js";
 import { Sidebar, home } from "./side.js";
 import { NewTask } from "./newtask.js";
+import { Settings } from "./settings.js";
 import { SessionView, NewSession, StatusDot } from "./conversation.js";
 import { RightPanel } from "./panel.js";
 import { PhaseRail } from "./rail.js";
@@ -39,10 +40,27 @@ function useLive() {
   return { ...data, signedIn, tick };
 }
 
+/** TicketRow links the task's Linear ticket and creates one sub-task per child issue on demand. */
+function TicketRow({ task }) {
+  const [note, setNote] = useState("");
+  const fromChildren = () =>
+    post(`/api/tasks/${task.id}/ticket/subtasks`, {}).then(
+      (made) => setNote(made.length ? `created ${made.map((t) => t.ticket).join(", ")}` : "every child already has a sub-task"),
+      (err) => setNote(err.message),
+    );
+  return html`<dt>ticket</dt>
+    <dd class="row-inline">
+      <a href=${task.ticketUrl} target="_blank" rel="noreferrer">${task.ticket}</a> · ticket.md
+      <button onClick=${fromChildren}>Sub-tasks from children</button>
+      ${note && html`<span class="dim">${note}</span>`}
+    </dd>`;
+}
+
 function TaskDetails({ task, parent }) {
   return html`<div class="body">
     <dl class="kv">
       ${parent && html`<dt>parent</dt><dd><a href=${`#/task/${parent.id}`}>${parent.title}</a> · .layer8/task/parent/</dd>`}
+      ${task.ticket && html`<${TicketRow} task=${task} />`}
       <dt>worktree</dt><dd title=${task.worktree}>${home(task.worktree)}</dd>
       <dt>base</dt><dd>${task.baseRef}</dd>
       <dt>artifacts</dt><dd title=${task.artifactsDir}>${home(task.artifactsDir)}</dd>
@@ -109,6 +127,7 @@ function App() {
   const sessions = useActiveSessions();
   const [where, setWhere] = useState(route());
   const [newTask, setNewTask] = useState(null);
+  const [settings, setSettings] = useState(false);
   const [wide, setWide] = useState(localStorage.getItem("panel") === "wide");
   const toggleWide = () => (localStorage.setItem("panel", wide ? "" : "wide"), setWide(!wide));
   useEffect(() => {
@@ -131,6 +150,7 @@ function App() {
       selected=${where}
       onSelect=${(id, sessionId) => go(id, sessionId ? `s/${sessionId}` : "")}
       onNewTask=${(project) => setNewTask({ project })}
+      onSettings=${() => setSettings(true)}
     />
     <main>
       ${where.task
@@ -146,6 +166,7 @@ function App() {
         : html`<div class="empty"><div class="lbl">No task selected</div><div>Pick a task, or press ＋ next to a project to start one.</div></div>`}
     </main>
     ${where.task && html`<${RightPanel} key=${where.task} taskId=${where.task} wide=${wide} onWide=${toggleWide} />`}
+    ${settings && html`<${Settings} projects=${projects} onClose=${() => setSettings(false)} />`}
     ${newTask &&
     html`<${NewTask}
       project=${newTask.project}

@@ -78,6 +78,11 @@ func New(st *store.Store, hub *Hub, tasks *task.Service, sessions *session.Manag
 	mux.HandleFunc("POST /api/tasks/{id}/pr/draft", s.draft("pr"))
 	mux.HandleFunc("POST /api/tasks/{id}/pr/fix-ci", s.fixCI)
 	mux.HandleFunc("POST /api/tasks/{id}/pr/fix-reviews", s.fixReviews)
+	mux.HandleFunc("POST /api/tasks/{id}/ticket/subtasks", s.subtasksFromChildren)
+	mux.HandleFunc("GET /api/config", s.getConfig)
+	mux.HandleFunc("PUT /api/config", s.putConfig)
+	mux.HandleFunc("GET /api/linear/issues", s.linearIssues)
+	mux.HandleFunc("GET /api/linear/issues/{identifier}", s.linearIssue)
 	mux.HandleFunc("GET /artifact/{id}/{key}/{path...}", s.sharedArtifact)
 	return s.guard(mux)
 }

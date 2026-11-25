@@ -18,6 +18,8 @@ A sub-task is a full task with a parent. Its branch starts from the head of the 
 | Command | Effect |
 |---|---|
 | `l8 task create --title T [--parent <id\|current>] [--workflow freeform] [--prompt P] [--start] [--auto-advance] [--autonomous] [--project P] [--adopt DIR]` | New task, or sub-task with `--parent`, on branch `l8/<slug>`. `--prompt` goes to its `task.md`; `--start` also starts its first session (below) |
+| `l8 task create --ticket FLOW-1297 [--children] [--title T] …` | Task linked to a Linear issue (needs the Linear key in the app's Settings): title from the issue unless `--title`, branch from the issue's `branchName`, and `ticket.md` with its description, comments, attachments and sub-issues. `--children` also creates one sub-task per child issue |
+| `l8 task children <id\|current> [--workflow W] [--start]` | One sub-task per child issue of the task's ticket, each on that child's branch; children that already have a sub-task are skipped |
 | `l8 task list [--project P] [--parent <id\|current>] [--status active\|done\|archived]` | Tasks, newest first: slug, status, workflow, branch, title. `--parent current` lists this task's sub-tasks |
 | `l8 task show <id\|slug\|current>` | Id, branch, base, worktree, artifacts folder, parent, workflow phases and `task.md` |
 | `l8 task done <id\|current>` / `l8 task archive <id\|current>` | Close a task. Its worktree and branch stay |

@@ -17,6 +17,7 @@ import (
 
 	"github.com/crashPopeye/layer8/internal/gh"
 	"github.com/crashPopeye/layer8/internal/gitx"
+	"github.com/crashPopeye/layer8/internal/linear"
 	"github.com/crashPopeye/layer8/internal/session"
 	"github.com/crashPopeye/layer8/internal/store"
 	"github.com/crashPopeye/layer8/internal/workflow"
@@ -52,6 +53,9 @@ type Service struct {
 
 	prMu   sync.Mutex
 	prSeen map[string]string
+
+	linearMu sync.RWMutex
+	linear   *linear.Client
 }
 
 // NewService returns a Service keeping worktrees and artifacts under home; sessions
@@ -95,8 +99,10 @@ func (s *Service) AddProject(ctx context.Context, path string) (store.Project, e
 
 // ProjectUpdate holds the project fields to change; nil fields are kept.
 type ProjectUpdate struct {
-	BaseBranch   *string `json:"baseBranch"`
-	Instructions *string `json:"instructions"`
+	BaseBranch      *string `json:"baseBranch"`
+	Instructions    *string `json:"instructions"`
+	LinearTeam      *string `json:"linearTeam"`
+	LinearWriteBack *bool   `json:"linearWriteBack"`
 }
 
 // UpdateProject applies u to the project id.
@@ -111,6 +117,12 @@ func (s *Service) UpdateProject(id string, u ProjectUpdate) (store.Project, erro
 	if u.Instructions != nil {
 		p.Instructions = *u.Instructions
 	}
+	if u.LinearTeam != nil {
+		p.LinearTeam = *u.LinearTeam
+	}
+	if u.LinearWriteBack != nil {
+		p.LinearWriteBack = *u.LinearWriteBack
+	}
 	if err := s.store.UpdateProject(p); err != nil {
 		return p, err
 	}
@@ -120,9 +132,12 @@ func (s *Service) UpdateProject(id string, u ProjectUpdate) (store.Project, erro
 
 // CreateInput describes a new task. ParentID makes it a sub-task of that task, in
 // the parent's project and branched from the parent's branch. AdoptPath turns an
-// existing folder into the task's worktree instead of creating one. Start starts
-// the task's first session: its workflow's first phase, or Prompt for freeform.
-// AutoAdvance starts each next phase as soon as the previous one is done.
+// existing folder into the task's worktree instead of creating one. Ticket links a
+// Linear issue: it names the task and its branch and is written to ticket.md, and
+// Children also creates one sub-task per child issue. Start starts the first
+// session of the task (and of each sub-task): its workflow's first phase, or
+// Prompt for freeform. AutoAdvance starts each next phase as soon as the
+// previous one is done.
 type CreateInput struct {
 	ProjectID   string `json:"projectId"`
 	ParentID    string `json:"parentId"`
@@ -130,15 +145,19 @@ type CreateInput struct {
 	Workflow    string `json:"workflow"`
 	Prompt      string `json:"prompt"`
 	AdoptPath   string `json:"adoptPath"`
+	Ticket      string `json:"ticket"`
+	Children    bool   `json:"children"`
 	Autonomous  bool   `json:"autonomous"`
 	AutoAdvance bool   `json:"autoAdvance"`
 	Start       bool   `json:"start"`
 }
 
-// Created is a new task and, when it was asked to start, its first session.
+// Created is a new task with, when it was asked to start, its first session and,
+// when made from a ticket's children, its sub-tasks.
 type Created struct {
 	store.Task
-	Session *store.Session `json:"session,omitempty"`
+	Session  *store.Session `json:"session,omitempty"`
+	Subtasks []Created      `json:"subtasks,omitempty"`
 }
 
 // Create makes the task's worktree and branch, its artifacts folder with task.md,
@@ -146,6 +165,17 @@ type Created struct {
 // A sub-task inherits its parent's project and autonomy and links the parent's
 // artifacts folder as parent/.
 func (s *Service) Create(ctx context.Context, in CreateInput) (Created, error) {
+	var issue *linear.Issue
+	if in.Ticket = strings.TrimSpace(in.Ticket); in.Ticket != "" {
+		i, err := s.Issue(ctx, in.Ticket)
+		if err != nil {
+			return Created{}, err
+		}
+		issue = &i
+		if strings.TrimSpace(in.Title) == "" {
+			in.Title = i.Title
+		}
+	}
 	in.Title = strings.TrimSpace(in.Title)
 	if in.Title == "" {
 		return Created{}, fmt.Errorf("%w: title is required", ErrInvalid)
@@ -175,7 +205,11 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (Created, error) {
 	if err != nil {
 		return Created{}, err
 	}
-	slug, err := s.freeSlug(slugify(in.Title))
+	slugBase := slugify(in.Title)
+	if issue != nil {
+		slugBase = ticketSlug(*issue)
+	}
+	slug, err := s.freeSlug(slugBase)
 	if err != nil {
 		return Created{}, err
 	}
@@ -190,6 +224,9 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (Created, error) {
 		AutoAdvance: in.AutoAdvance,
 		CreatedAt:   time.Now().UnixMilli(),
 	}
+	if issue != nil {
+		t.Ticket, t.TicketURL, t.Branch = issue.Identifier, issue.URL, issue.BranchName
+	}
 	if parent != nil {
 		t.ParentID, t.BaseRef = parent.ID, parent.Branch
 	} else {
@@ -203,22 +240,32 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (Created, error) {
 	if err != nil {
 		return Created{}, err
 	}
-	if err := s.linkArtifacts(ctx, t, taskMarkdown(t.Title, in.Prompt, p.Instructions)); err != nil {
+	if err := s.linkArtifacts(ctx, t, taskMarkdown(t, in.Prompt, p.Instructions)); err != nil {
 		return Created{}, err
+	}
+	if issue != nil {
+		if err := s.writeTicket(t, *issue); err != nil {
+			return Created{}, err
+		}
 	}
 	if err := s.store.InsertTask(t); err != nil {
 		return Created{}, err
 	}
 	s.notify("task", t.ID)
 	c := Created{Task: t}
-	if !in.Start {
-		return c, nil
+	if in.Start {
+		ss, err := s.startFirst(ctx, &c.Task, in.Prompt)
+		if err != nil {
+			return c, fmt.Errorf("task %s was created but its session did not start: %w", t.Slug, err)
+		}
+		c.Session = &ss
 	}
-	ss, err := s.startFirst(ctx, &c.Task, in.Prompt)
-	if err != nil {
-		return c, fmt.Errorf("task %s was created but its session did not start: %w", t.Slug, err)
+	if in.Children && issue != nil {
+		c.Subtasks, err = s.createChildren(ctx, c.Task, *issue, SubtasksInput{Workflow: in.Workflow, Start: in.Start})
+		if err != nil {
+			return c, fmt.Errorf("task %s was created but not all its sub-tasks: %w", t.Slug, err)
+		}
 	}
-	c.Session = &ss
 	return c, nil
 }
 
@@ -251,11 +298,18 @@ func (s *Service) baseRef(ctx context.Context, p store.Project) string {
 	return p.BaseBranch
 }
 
+// newWorktree creates the task's worktree on its branch, l8/<slug> unless a ticket
+// named it, reusing that branch when the repository already has it.
 func (s *Service) newWorktree(ctx context.Context, t *store.Task, p store.Project) error {
-	t.Branch = "l8/" + t.Slug
+	if t.Branch == "" {
+		t.Branch = "l8/" + t.Slug
+	}
 	t.Worktree = filepath.Join(s.home, "workspaces", t.Slug)
 	if err := os.MkdirAll(filepath.Dir(t.Worktree), 0o755); err != nil {
 		return err
+	}
+	if s.git.RefExists(ctx, p.Path, "refs/heads/"+t.Branch) {
+		return s.git.WorktreeCheckout(ctx, p.Path, t.Worktree, t.Branch)
 	}
 	return s.git.WorktreeAdd(ctx, p.Path, t.Worktree, t.Branch, t.BaseRef)
 }
@@ -397,9 +451,12 @@ func slugify(title string) string {
 	return slug
 }
 
-func taskMarkdown(title, prompt, instructions string) string {
+func taskMarkdown(t store.Task, prompt, instructions string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "# %s\n", title)
+	fmt.Fprintf(&b, "# %s\n", t.Title)
+	if t.Ticket != "" {
+		fmt.Fprintf(&b, "\nLinear ticket [%s](%s); its description, comments and sub-issues are in %s.\n", t.Ticket, t.TicketURL, TicketFile)
+	}
 	if prompt = strings.TrimSpace(prompt); prompt != "" {
 		fmt.Fprintf(&b, "\n%s\n", prompt)
 	}

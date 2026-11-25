@@ -128,6 +128,27 @@ func TestAuthSetsCookie(t *testing.T) {
 	}
 }
 
+func TestLinearKeyIsNeverServed(t *testing.T) {
+	h := handler(t)
+	call := func(method, path, body string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(method, "http://127.0.0.1:7878"+path, strings.NewReader(body))
+		r.Header.Set("Authorization", "Bearer "+token)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w
+	}
+	if w := call(http.MethodGet, "/api/linear/issues?q=FLOW-1", ""); w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "Linear is not connected") {
+		t.Fatalf("issues without a key: %d %s", w.Code, w.Body)
+	}
+	w := call(http.MethodPut, "/api/config", `{"linearApiKey":"lin_api_secret"}`)
+	if w.Code != http.StatusOK || strings.TrimSpace(w.Body.String()) != `{"linearConnected":true}` {
+		t.Fatalf("PUT /api/config: %d %s", w.Code, w.Body)
+	}
+	if w := call(http.MethodGet, "/api/config", ""); strings.Contains(w.Body.String(), "lin_api") || !strings.Contains(w.Body.String(), "true") {
+		t.Fatalf("GET /api/config: %s", w.Body)
+	}
+}
+
 func git(t *testing.T, dir string, args ...string) {
 	t.Helper()
 	cmd := exec.Command("git", append([]string{"-C", dir, "-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false"}, args...)...)

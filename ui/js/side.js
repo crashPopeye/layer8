@@ -65,7 +65,7 @@ function TaskTree({ task, depth, trail, children, sessions, selected, onSelect }
 }
 
 /** Sidebar lists projects and their task trees, newest first; archived tasks are hidden unless asked for. */
-export function Sidebar({ projects, tasks, sessions, selected, onSelect, onNewTask }) {
+export function Sidebar({ projects, tasks, sessions, selected, onSelect, onNewTask, onSettings }) {
   const [adding, setAdding] = useState(false);
   const [archived, setArchived] = useState(false);
   const visible = tasks.filter((t) => archived || t.status !== "archived");
@@ -97,6 +97,7 @@ export function Sidebar({ projects, tasks, sessions, selected, onSelect, onNewTa
     ${!projects.length && !adding && html`<div class="dim">Add a git repository to start.</div>`}
     <div class="foot">
       <label><input type="checkbox" checked=${archived} onChange=${(e) => setArchived(e.target.checked)} /> Show archived</label>
+      <button class="icon" title="Linear key and write-back" onClick=${onSettings}>Settings</button>
     </div>
   </aside>`;
 }

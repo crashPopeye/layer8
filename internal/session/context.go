@@ -20,7 +20,8 @@ var contextTemplate = template.Must(template.New("context").Parse(`<layer8_sessi
 Session ID: {{.Session.ID}} ({{.Session.Label}})
 Task: {{.Task.Title}} · {{.Task.ID}} · workflow {{.Task.Workflow}}{{with .Task.Phase}} · phase {{.}}{{end}}
 Branch: {{.Task.Branch}} · worktree {{.Task.Worktree}}
-{{with .Parent}}Parent task: {{.Title}} · {{.ID}}; its artifacts are at .layer8/task/parent/ (read-only)
+{{with .Task.Ticket}}Linear ticket: {{.}} · {{$.Task.TicketURL}}; its description, comments and sub-issues are in .layer8/task/ticket.md
+{{end}}{{with .Parent}}Parent task: {{.Title}} · {{.ID}}; its artifacts are at .layer8/task/parent/ (read-only)
 {{end}}Autonomous: {{if .Task.Autonomous}}yes - answer your own questions with your recommendation and record the choice{{else}}no{{end}}
 Drive the app with the l8 CLI (see the l8:orchestrate skill). "current" means this task/session.
 </layer8_session>

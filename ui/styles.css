@@ -57,7 +57,7 @@ aside .add input { flex: 1; min-width: 0; }
 .row.sess.sel { color: var(--terminal-fg); }
 .badge { font: 600 10px var(--mono); padding: 0 5px; background: var(--terminal-warning); color: var(--terminal-bg); }
 .tag { font-size: 10px; border: 1px solid var(--terminal-border); padding: 0 4px; color: var(--terminal-fg-dim); }
-aside .foot { margin-top: auto; padding-top: 10px; }
+aside .foot { margin-top: auto; padding-top: 10px; display: flex; justify-content: space-between; align-items: center; }
 aside .foot label { display: flex; gap: 6px; align-items: center; font-size: 12px; color: var(--terminal-fg-dim); }
 aside .foot input { width: auto; }
 
@@ -81,6 +81,13 @@ pre.doc { border: 1px solid var(--terminal-border); background: var(--terminal-b
 .dialog .check input { width: auto; }
 .dialog .btns { display: flex; gap: 6px; justify-content: flex-end; align-items: center; }
 .dialog .btns .err { margin-right: auto; font-size: 12px; }
+.dialog .dim, dd .dim { font-size: 12px; color: var(--terminal-fg-dim); }
+.row-inline { display: flex; gap: 6px; align-items: center; }
+.row-inline .title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tickets { display: flex; flex-direction: column; gap: 4px; }
+.tickets .list { display: flex; flex-direction: column; max-height: 220px; overflow: auto; border: 1px solid var(--terminal-border); }
+.tickets .issue { display: flex; gap: 8px; align-items: center; border: 0; text-align: left; padding: 4px 6px; }
+.tickets .issue .title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .spacer { flex: 1; }
 .tag.warn { color: var(--terminal-warning); border-color: var(--terminal-warning); }

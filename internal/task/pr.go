@@ -237,7 +237,8 @@ type PRInput struct {
 	Draft bool   `json:"draft"`
 }
 
-// OpenPR pushes the task's branch and opens its pull request into the PR target.
+// OpenPR pushes the task's branch, opens its pull request into the PR target and,
+// when the project writes back to Linear, moves the task's ticket to In Review.
 func (s *Service) OpenPR(ctx context.Context, taskRef string, in PRInput) (gh.PR, error) {
 	in.Title = strings.TrimSpace(in.Title)
 	if in.Title == "" {
@@ -266,6 +267,7 @@ func (s *Service) OpenPR(ctx context.Context, taskRef string, in PRInput) (gh.PR
 	}
 	s.notify("task", t.ID)
 	s.notify("pr", t.ID)
+	s.writeBack(ctx, t)
 	return pr, nil
 }
 

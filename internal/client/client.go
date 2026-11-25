@@ -152,6 +152,12 @@ func (c *Client) UpdateTask(idOrSlug string, u task.TaskUpdate) (store.Task, err
 	return t, c.do(http.MethodPut, "/api/tasks/"+url.PathEscape(idOrSlug), u, &t)
 }
 
+// SubtasksFromChildren creates one sub-task of the task per child issue of its Linear ticket.
+func (c *Client) SubtasksFromChildren(idOrSlug string, in task.SubtasksInput) ([]task.Created, error) {
+	var ts []task.Created
+	return ts, c.do(http.MethodPost, "/api/tasks/"+url.PathEscape(idOrSlug)+"/ticket/subtasks", in, &ts)
+}
+
 // NextPhase starts the session of the task's next workflow phase.
 func (c *Client) NextPhase(idOrSlug string) (store.Session, error) {
 	var s store.Session

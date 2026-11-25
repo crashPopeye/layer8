@@ -24,6 +24,8 @@ const usage = `usage: l8 <command> [--json] ...
   l8 project add <path>
   l8 project list
   l8 task create --title T [--parent <id|current>] [--project P] [--workflow freeform] [--prompt P] [--start] [--auto-advance] [--adopt DIR] [--autonomous]
+  l8 task create --ticket FLOW-1297 [--children] [--title T] ...
+  l8 task children <id|slug|current> [--workflow W] [--start]
   l8 task list [--project P] [--parent <id|current>] [--status active|done|archived]
   l8 task show <id|slug|current>
   l8 task done <id|slug|current>
@@ -73,6 +75,7 @@ var commands = map[string]command{
 	"project add":    projectAdd,
 	"project list":   projectList,
 	"task create":    taskCreate,
+	"task children":  taskChildren,
 	"task list":      taskList,
 	"task show":      taskShow,
 	"task done":      taskStatus("done"),
@@ -145,7 +148,9 @@ func taskCreate(c *client.Client, out printer, args []string) error {
 	var in task.CreateInput
 	project := fs.String("project", "", "project id, name or path (default: the parent's project, else the only project)")
 	parent := fs.String("parent", "", "make it a sub-task of this task (id, slug or current)")
-	fs.StringVar(&in.Title, "title", "", "task title")
+	fs.StringVar(&in.Title, "title", "", "task title (default: the ticket's title)")
+	fs.StringVar(&in.Ticket, "ticket", "", "link this Linear issue (e.g. FLOW-1297): its branch, and ticket.md")
+	fs.BoolVar(&in.Children, "children", false, "with --ticket, also create one sub-task per child issue")
 	fs.StringVar(&in.Workflow, "workflow", "freeform", strings.Join(task.Workflows, "|"))
 	fs.StringVar(&in.Prompt, "prompt", "", "what the task is about; written to task.md and, with --start, sent to its first session")
 	fs.BoolVar(&in.Start, "start", false, "start the task's first session: its workflow's first phase, or --prompt for freeform")
@@ -181,6 +186,39 @@ func taskCreate(c *client.Client, out printer, args []string) error {
 		fmt.Fprintf(w, "created %s (%s) on %s at %s\n", t.Slug, t.ID, t.Branch, t.Worktree)
 		if t.Session != nil {
 			fmt.Fprintf(w, "session %s (%s) %s\n", t.Session.ID, t.Session.Label, t.Session.Status)
+		}
+		for _, sub := range t.Subtasks {
+			fmt.Fprintf(w, "  sub-task %s (%s) on %s\n", sub.Slug, sub.Ticket, sub.Branch)
+		}
+	})
+}
+
+func taskChildren(c *client.Client, out printer, args []string) error {
+	fs := flag.NewFlagSet("task children", flag.ContinueOnError)
+	var in task.SubtasksInput
+	fs.StringVar(&in.Workflow, "workflow", "", "workflow of the sub-tasks (default: the task's)")
+	fs.BoolVar(&in.Start, "start", false, "start each sub-task's first session")
+	rest, err := parse(fs, args)
+	if err != nil {
+		return err
+	}
+	if len(rest) != 1 {
+		return errors.New("usage: l8 task children <id|slug|current> [--workflow W] [--start]")
+	}
+	id, err := current(rest[0], "L8_TASK_ID")
+	if err != nil {
+		return err
+	}
+	created, err := c.SubtasksFromChildren(id, in)
+	if err != nil {
+		return err
+	}
+	return out.print(created, func(w io.Writer) {
+		if len(created) == 0 {
+			fmt.Fprintln(w, "every child issue already has a sub-task")
+		}
+		for _, sub := range created {
+			fmt.Fprintf(w, "created %s (%s) on %s\n", sub.Slug, sub.Ticket, sub.Branch)
 		}
 	})
 }

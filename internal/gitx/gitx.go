@@ -76,6 +76,12 @@ func (g Git) WorktreeAdd(ctx context.Context, repo, path, branch, base string) e
 	return err
 }
 
+// WorktreeCheckout creates a worktree at path on the existing branch.
+func (g Git) WorktreeCheckout(ctx context.Context, repo, path, branch string) error {
+	_, err := g.Run(ctx, repo, "worktree", "add", path, branch)
+	return err
+}
+
 // HasChanges reports whether the worktree differs from its merge-base with
 // baseRef, counting commits, uncommitted edits and untracked files.
 func (g Git) HasChanges(ctx context.Context, worktree, baseRef string) (bool, error) {

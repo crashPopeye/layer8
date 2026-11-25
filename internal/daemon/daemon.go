@@ -16,7 +16,9 @@ import (
 
 	"github.com/crashPopeye/layer8/internal/api"
 	"github.com/crashPopeye/layer8/internal/client"
+	"github.com/crashPopeye/layer8/internal/config"
 	"github.com/crashPopeye/layer8/internal/gitx"
+	"github.com/crashPopeye/layer8/internal/linear"
 	"github.com/crashPopeye/layer8/internal/session"
 	"github.com/crashPopeye/layer8/internal/store"
 	"github.com/crashPopeye/layer8/internal/task"
@@ -53,6 +55,11 @@ func Run(ctx context.Context, home, addr string) error {
 		Env:           sessionEnv(home, addr),
 	})
 	tasks := task.NewService(st, gitx.Git{}, home, hub.Notify, sessions)
+	cfg, err := config.Load(home)
+	if err != nil {
+		log.Printf("read config: %v", err)
+	}
+	tasks.UseLinear(linear.New(cfg.LinearAPIKey))
 	sessions.OnIdle = tasks.PhaseCheck
 	srv := &http.Server{
 		Handler:     api.New(st, hub, tasks, sessions, token, ui.FS),
