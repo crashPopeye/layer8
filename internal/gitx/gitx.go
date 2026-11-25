@@ -96,3 +96,12 @@ func (g Git) HasChanges(ctx context.Context, worktree, baseRef string) (bool, er
 	untracked, err := g.Run(ctx, worktree, "ls-files", "--others", "--exclude-standard")
 	return untracked != "", err
 }
+
+// Files lists the tracked and untracked, not ignored, files of the working tree at dir.
+func (g Git) Files(ctx context.Context, dir string) ([]string, error) {
+	out, err := g.output(ctx, dir, "ls-files", "-z", "--cached", "--others", "--exclude-standard")
+	if err != nil {
+		return nil, err
+	}
+	return strings.FieldsFunc(out, func(r rune) bool { return r == 0 }), nil
+}

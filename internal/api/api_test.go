@@ -141,7 +141,7 @@ func TestLinearKeyIsNeverServed(t *testing.T) {
 		t.Fatalf("issues without a key: %d %s", w.Code, w.Body)
 	}
 	w := call(http.MethodPut, "/api/config", `{"linearApiKey":"lin_api_secret"}`)
-	if w.Code != http.StatusOK || strings.TrimSpace(w.Body.String()) != `{"linearConnected":true}` {
+	if w.Code != http.StatusOK || strings.TrimSpace(w.Body.String()) != `{"linearConnected":true,"theme":"rose-pine"}` {
 		t.Fatalf("PUT /api/config: %d %s", w.Code, w.Body)
 	}
 	if w := call(http.MethodGet, "/api/config", ""); strings.Contains(w.Body.String(), "lin_api") || !strings.Contains(w.Body.String(), "true") {
@@ -539,5 +539,73 @@ func TestChangesAndCommit(t *testing.T) {
 	get(t, base+"/pr", &info)
 	if info.PR != nil || info.Head != "l8/notes" || info.Target != "main" || !info.Unpushed || info.Dirty || info.Title != "Notes" {
 		t.Fatalf("pr info = %+v", info)
+	}
+}
+
+func TestSessionControlsThroughHTTP(t *testing.T) {
+	srv := httptest.NewServer(handler(t))
+	t.Cleanup(srv.Close)
+	c := client.New(srv.URL, token)
+	p, err := c.AddProject(repo(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err := c.CreateTask(task.CreateInput{ProjectID: p.ID, Title: "Controls"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := c.StartSession(created.Slug, session.StartInput{Label: "research", Prompt: "hi"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for s.ClaudeSessionID == "" && time.Now().Before(deadline) {
+		listed, _ := c.Sessions(created.ID)
+		s = listed[0].Session
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	call := func(method, path, body string, out any) int {
+		t.Helper()
+		r, _ := http.NewRequest(method, srv.URL+path, strings.NewReader(body))
+		r.Header.Set("Authorization", "Bearer "+token)
+		res, err := http.DefaultClient.Do(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		if out != nil {
+			json.NewDecoder(res.Body).Decode(out)
+		}
+		return res.StatusCode
+	}
+
+	var updated store.Session
+	if code := call(http.MethodPut, "/api/sessions/"+s.ID, `{"permissionMode":"auto","model":"sonnet"}`, &updated); code != http.StatusOK ||
+		updated.PermissionMode != "auto" || updated.Model != "sonnet" {
+		t.Fatalf("PUT session: %d %+v", code, updated)
+	}
+	if code := call(http.MethodPut, "/api/sessions/"+s.ID, `{"permissionMode":"plan"}`, nil); code != http.StatusBadRequest {
+		t.Fatalf("PUT unknown mode: %d", code)
+	}
+
+	var fork store.Session
+	if code := call(http.MethodPost, "/api/tasks/"+created.ID+"/sessions", `{"forkFrom":"`+s.ID+`"}`, &fork); code != http.StatusOK ||
+		fork.ForkedFrom != s.ID || fork.ID == s.ID || fork.PermissionMode != "auto" {
+		t.Fatalf("fork: %d %+v", code, fork)
+	}
+
+	var files []string
+	if code := call(http.MethodGet, "/api/tasks/"+created.ID+"/files?q=read", "", &files); code != http.StatusOK || len(files) != 1 || files[0] != "README.md" {
+		t.Fatalf("files: %d %v", code, files)
+	}
+	var commands []string
+	if code := call(http.MethodGet, "/api/tasks/"+created.ID+"/commands", "", &commands); code != http.StatusOK || commands == nil {
+		t.Fatalf("commands: %d %v", code, commands)
+	}
+
+	var cfg struct{ Theme string }
+	if code := call(http.MethodPut, "/api/config", `{"theme":"dash"}`, &cfg); code != http.StatusOK || cfg.Theme != "dash" {
+		t.Fatalf("theme: %d %+v", code, cfg)
 	}
 }

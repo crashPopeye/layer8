@@ -1,6 +1,7 @@
 import { html, useState, useEffect, useRef, useCallback } from "/vendor/preact-htm.js";
 import { get, post } from "./api.js";
 import { useEvents, useSessions } from "./events.js";
+import { useTheme } from "./settings.js";
 
 const SANDBOX = "allow-scripts allow-popups allow-popups-to-escape-sandbox";
 
@@ -32,54 +33,53 @@ export function useTaskList(taskId, path, kind) {
 
 let mermaidReady = null;
 
-/** loadMermaid loads the vendored Mermaid once and themes it from the palette's CSS variables. */
-function loadMermaid() {
+/** loadMermaid loads the vendored Mermaid once, then themes it from the current palette's CSS variables. */
+async function loadMermaid() {
   mermaidReady ||= new Promise((resolve, reject) => {
     const script = document.createElement("script");
     script.src = "/vendor/mermaid.min.js";
     script.onload = () => resolve(window.mermaid);
     script.onerror = () => reject(new Error("could not load Mermaid"));
     document.head.append(script);
-  }).then((mermaid) => {
-    const css = getComputedStyle(document.documentElement);
-    const v = (name) => css.getPropertyValue(name).trim();
-    mermaid.initialize({
-      startOnLoad: false,
-      securityLevel: "strict",
-      suppressErrorRendering: true,
-      htmlLabels: false,
-      flowchart: { htmlLabels: false },
-      theme: "base",
-      fontFamily: css.getPropertyValue("--sans"),
-      themeVariables: {
-        fontSize: "14px",
-        background: v("--terminal-bg"),
-        primaryColor: v("--terminal-bg-alt"),
-        primaryBorderColor: v("--terminal-accent"),
-        primaryTextColor: v("--terminal-fg"),
-        secondaryColor: v("--terminal-bg-alt"),
-        secondaryBorderColor: v("--terminal-accent-alt"),
-        tertiaryColor: v("--terminal-bg"),
-        tertiaryBorderColor: v("--terminal-border"),
-        lineColor: v("--terminal-fg-dim"),
-        textColor: v("--terminal-fg"),
-        titleColor: v("--terminal-fg"),
-        edgeLabelBackground: v("--terminal-bg"),
-        clusterBkg: v("--terminal-bg"),
-        clusterBorder: v("--terminal-border"),
-        noteBkgColor: v("--terminal-bg-alt"),
-        noteBorderColor: v("--terminal-accent-alt"),
-        noteTextColor: v("--terminal-fg"),
-        actorBkg: v("--terminal-bg-alt"),
-        actorBorder: v("--terminal-accent"),
-        actorTextColor: v("--terminal-fg"),
-        signalColor: v("--terminal-fg-dim"),
-        signalTextColor: v("--terminal-fg"),
-      },
-    });
-    return mermaid;
   });
-  return mermaidReady;
+  const mermaid = await mermaidReady;
+  const css = getComputedStyle(document.documentElement);
+  const v = (name) => css.getPropertyValue(name).trim();
+  mermaid.initialize({
+    startOnLoad: false,
+    securityLevel: "strict",
+    suppressErrorRendering: true,
+    htmlLabels: false,
+    flowchart: { htmlLabels: false },
+    theme: "base",
+    fontFamily: css.getPropertyValue("--sans"),
+    themeVariables: {
+      fontSize: "14px",
+      background: v("--terminal-bg"),
+      primaryColor: v("--terminal-bg-alt"),
+      primaryBorderColor: v("--terminal-accent"),
+      primaryTextColor: v("--terminal-fg"),
+      secondaryColor: v("--terminal-bg-alt"),
+      secondaryBorderColor: v("--terminal-accent-alt"),
+      tertiaryColor: v("--terminal-bg"),
+      tertiaryBorderColor: v("--terminal-border"),
+      lineColor: v("--terminal-fg-dim"),
+      textColor: v("--terminal-fg"),
+      titleColor: v("--terminal-fg"),
+      edgeLabelBackground: v("--terminal-bg"),
+      clusterBkg: v("--terminal-bg"),
+      clusterBorder: v("--terminal-border"),
+      noteBkgColor: v("--terminal-bg-alt"),
+      noteBorderColor: v("--terminal-accent-alt"),
+      noteTextColor: v("--terminal-fg"),
+      actorBkg: v("--terminal-bg-alt"),
+      actorBorder: v("--terminal-accent"),
+      actorTextColor: v("--terminal-fg"),
+      signalColor: v("--terminal-fg-dim"),
+      signalTextColor: v("--terminal-fg"),
+    },
+  });
+  return mermaid;
 }
 
 let diagrams = 0;
@@ -129,10 +129,11 @@ function selectionAt(root) {
   };
 }
 
-/** Markdown shows server-rendered HTML, then draws its diagrams and wires its links. */
+/** Markdown shows server-rendered HTML, then draws its diagrams and wires its links; a new theme redraws them. */
 function Markdown({ taskId, artifact, comments, onOpen }) {
   const [doc, setDoc] = useState(null);
   const ref = useRef(null);
+  const theme = useTheme();
   useEffect(() => {
     get(`/api/tasks/${taskId}/render/${encodeURI(artifact.path)}`).then(
       (r) => setDoc({ html: r.html }),
@@ -146,7 +147,7 @@ function Markdown({ taskId, artifact, comments, onOpen }) {
     for (const a of root.querySelectorAll("a[href]")) {
       if (/^[a-z]+:/i.test(a.getAttribute("href"))) (a.target = "_blank"), (a.rel = "noopener");
     }
-  }, [doc]);
+  }, [doc, theme]);
   useEffect(() => {
     const root = ref.current;
     if (!root) return;
@@ -154,7 +155,7 @@ function Markdown({ taskId, artifact, comments, onOpen }) {
     for (const c of comments) {
       if (c.status === "open" && c.line) root.querySelector(`[data-line="${c.line}"]`)?.classList.add("commented");
     }
-  }, [doc, comments]);
+  }, [doc, comments, theme]);
   const onClick = (e) => {
     const a = e.target.closest("a[href]");
     if (!a) return;
@@ -167,7 +168,7 @@ function Markdown({ taskId, artifact, comments, onOpen }) {
   };
   if (!doc) return null;
   if (doc.error) return html`<div class="err">${doc.error}</div>`;
-  return html`<div class="md" ref=${ref} onClick=${onClick} dangerouslySetInnerHTML=${{ __html: doc.html }}></div>`;
+  return html`<div class="md" key=${theme} ref=${ref} onClick=${onClick} dangerouslySetInnerHTML=${{ __html: doc.html }}></div>`;
 }
 
 /** Text shows a plain file with numbered lines. */

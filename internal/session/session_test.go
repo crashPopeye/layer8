@@ -17,11 +17,12 @@ import (
 
 // fakeProc records what the Manager writes; the test plays the CLI through its handlers.
 type fakeProc struct {
-	mu     sync.Mutex
-	opts   claude.Options
-	h      claude.Handlers
-	sent   []string
-	closed bool
+	mu       sync.Mutex
+	opts     claude.Options
+	h        claude.Handlers
+	sent     []string
+	controls []string
+	closed   bool
 }
 
 func (p *fakeProc) Send(text string) error {
@@ -31,8 +32,27 @@ func (p *fakeProc) Send(text string) error {
 	return nil
 }
 func (p *fakeProc) Interrupt() error                    { return nil }
-func (p *fakeProc) SetModel(string) error               { return nil }
-func (p *fakeProc) SetPermissionMode(mode string) error { return nil }
+func (p *fakeProc) SetModel(model string) error         { return p.control("model=" + model) }
+func (p *fakeProc) SetPermissionMode(mode string) error { return p.control("mode=" + mode) }
+
+func (p *fakeProc) control(c string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.controls = append(p.controls, c)
+	return nil
+}
+
+func (p *fakeProc) Controls() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return slices.Clone(p.controls)
+}
+
+func (p *fakeProc) Closed() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.closed
+}
 func (p *fakeProc) Close() error {
 	p.mu.Lock()
 	p.closed = true
@@ -456,5 +476,107 @@ func waitFor(t *testing.T, ok func() bool) {
 			t.Fatal("timed out")
 		}
 		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+func TestForkResumesTheSourceTranscriptOnce(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	src, err := f.m.Start(ctx, "t1", StartInput{Label: "research", Prompt: "plan it", Model: "opus"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.m.Start(ctx, "t1", StartInput{ForkFrom: src.ID}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("fork before init = %v", err)
+	}
+	f.procs[0].h.OnMessage(claude.Message{Type: "system", Subtype: "init", SessionID: "claude-1"})
+	f.procs[0].h.OnMessage(result(0.1))
+
+	fork, err := f.m.Start(ctx, "t1", StartInput{ForkFrom: src.ID, Prompt: "try the other way"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fork.ForkedFrom != src.ID || fork.Label != "research fork" || fork.Model != "opus" || fork.ClaudeSessionID != "" {
+		t.Fatalf("fork = %+v", fork)
+	}
+	if o := f.procs[1].opts; o.Resume != "claude-1" || !o.Fork {
+		t.Fatalf("fork spawn: resume %q fork %v", o.Resume, o.Fork)
+	}
+	f.procs[1].h.OnMessage(claude.Message{Type: "system", Subtype: "init", SessionID: "claude-2"})
+	if got := f.session(t, fork.ID); got.ClaudeSessionID != "claude-2" || got.ForkedFrom != src.ID {
+		t.Fatalf("fork after init = %+v", got)
+	}
+	if got := f.session(t, src.ID); got.ClaudeSessionID != "claude-1" {
+		t.Fatalf("source after fork = %+v", got)
+	}
+	var kinds []string
+	for _, e := range f.events(t, fork.ID) {
+		kinds = append(kinds, e.Kind)
+	}
+	if want := []string{"user", "result", "system", "user"}; !slices.Equal(kinds, want) {
+		t.Fatalf("fork events = %v, want %v", kinds, want)
+	}
+
+	f.procs[1].h.OnMessage(result(0.2))
+	if err := f.m.Stop(fork.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.m.Send(ctx, fork.ID, "again"); err != nil {
+		t.Fatal(err)
+	}
+	if o := f.procs[2].opts; o.Resume != "claude-2" || o.Fork {
+		t.Fatalf("fork respawn: resume %q fork %v", o.Resume, o.Fork)
+	}
+}
+
+func TestUpdateLive(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	s, err := f.m.Start(ctx, "t1", StartInput{Prompt: "go"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	proc := f.procs[0]
+	proc.h.OnMessage(claude.Message{Type: "system", Subtype: "init", SessionID: "claude-1"})
+	str := func(v string) *string { return &v }
+
+	if _, err := f.m.Update(s.ID, Update{PermissionMode: str("yolo")}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("bad mode = %v", err)
+	}
+	if _, err := f.m.Update(s.ID, Update{Effort: str("high")}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("effort during a turn = %v", err)
+	}
+	got, err := f.m.Update(s.ID, Update{PermissionMode: str("bypassPermissions"), Model: str("sonnet")})
+	if err != nil || got.PermissionMode != "bypassPermissions" || got.Model != "sonnet" {
+		t.Fatalf("Update = %+v, %v", got, err)
+	}
+	if want := []string{"model=sonnet", "mode=bypassPermissions"}; !slices.Equal(proc.Controls(), want) {
+		t.Fatalf("controls = %v, want %v", proc.Controls(), want)
+	}
+
+	proc.h.OnMessage(result(0.1))
+	if _, err := f.m.Update(s.ID, Update{Effort: str("high")}); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, proc.Closed)
+	if got := f.session(t, s.ID); got.Status != "ready_for_input" || got.Effort != "high" {
+		t.Fatalf("after effort change = %+v", got)
+	}
+	if _, err := f.m.Send(ctx, s.ID, "next"); err != nil {
+		t.Fatal(err)
+	}
+	if o := f.procs[1].opts; o.Effort != "high" || o.Resume != "claude-1" || o.PermissionMode != "bypassPermissions" {
+		t.Fatalf("respawn options %+v", o)
+	}
+}
+
+func TestCommandsFromInit(t *testing.T) {
+	f := newFixture(t)
+	if _, err := f.m.Start(context.Background(), "t1", StartInput{Prompt: "go"}); err != nil {
+		t.Fatal(err)
+	}
+	f.procs[0].h.OnMessage(claude.Message{Type: "system", Subtype: "init", SessionID: "c", SlashCommands: []string{"compact", "l8:create-prd"}})
+	if got, _ := f.m.Commands("smoke"); !slices.Equal(got, []string{"compact", "l8:create-prd"}) {
+		t.Fatalf("Commands = %v", got)
 	}
 }

@@ -3,10 +3,14 @@ import { get, post, put } from "./api.js";
 import { useEvents, useSessions, useActiveSessions } from "./events.js";
 import { Sidebar, home } from "./side.js";
 import { NewTask } from "./newtask.js";
-import { Settings } from "./settings.js";
+import { Settings, applyTheme } from "./settings.js";
 import { SessionView, NewSession, StatusDot } from "./conversation.js";
-import { RightPanel } from "./panel.js";
+import { RightPanel, tabs } from "./panel.js";
 import { PhaseRail } from "./rail.js";
+import { Palette } from "./palette.js";
+import { useKeys } from "./keys.js";
+
+document.documentElement.dataset.theme = localStorage.getItem("theme") || "rose-pine";
 
 /** route reads #/task/<id>[/s/<sessionId> | /new] from the URL hash. */
 function route() {
@@ -118,7 +122,7 @@ function TaskView({ id, sessionId, newSession, tick, tasks, onNewSubtask }) {
     ${newSession
       ? html`<${NewSession} task=${task} onStarted=${(s) => go(id, `s/${s.id}`)} />`
       : session
-        ? html`<${SessionView} key=${session.id} session=${session} />`
+        ? html`<${SessionView} key=${session.id} session=${session} onForked=${(s) => go(id, `s/${s.id}`)} />`
         : html`<${TaskDetails} task=${task} parent=${tasks.find((t) => t.id === task.parentId)} />`}`;
 }
 
@@ -128,13 +132,27 @@ function App() {
   const [where, setWhere] = useState(route());
   const [newTask, setNewTask] = useState(null);
   const [settings, setSettings] = useState(false);
+  const [palette, setPalette] = useState(false);
+  const [tab, setTab] = useState(localStorage.getItem("panelTab") || "artifacts");
   const [wide, setWide] = useState(localStorage.getItem("panel") === "wide");
   const toggleWide = () => (localStorage.setItem("panel", wide ? "" : "wide"), setWide(!wide));
+  const pickTab = (t) => (localStorage.setItem("panelTab", t), setTab(t));
   useEffect(() => {
     const onHash = () => setWhere(route());
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
+  useEffect(() => void get("/api/config").then((c) => applyTheme(c.theme), () => {}), []);
+  const current = tasks.find((t) => t.id === where.task);
+  useKeys({
+    "mod+k": () => setPalette(!palette),
+    "mod+n": () => {
+      const project = projects.find((p) => p.id === current?.projectId) || projects[0];
+      if (project) setNewTask({ project });
+    },
+    "mod+shift+n": () => where.task && go(where.task, "new"),
+    ...Object.fromEntries(tabs.map((t, i) => [`mod+${i + 1}`, () => where.task && pickTab(t)])),
+  });
 
   if (!signedIn) {
     return html`<div class="empty">
@@ -163,10 +181,12 @@ function App() {
             tasks=${tasks}
             onNewSubtask=${(parent) => setNewTask({ project: projects.find((p) => p.id === parent.projectId), parent })}
           />`
-        : html`<div class="empty"><div class="lbl">No task selected</div><div>Pick a task, or press ＋ next to a project to start one.</div></div>`}
+        : html`<div class="empty"><div class="lbl">No task selected</div><div>Pick a task, press ＋ next to a project, or use ⌘K to search and ⌘N for a new task.</div></div>`}
     </main>
-    ${where.task && html`<${RightPanel} key=${where.task} taskId=${where.task} wide=${wide} onWide=${toggleWide} />`}
+    ${where.task && html`<${RightPanel} key=${where.task} taskId=${where.task} tab=${tab} onTab=${pickTab} wide=${wide} onWide=${toggleWide} />`}
     ${settings && html`<${Settings} projects=${projects} onClose=${() => setSettings(false)} />`}
+    ${palette &&
+    html`<${Palette} tasks=${tasks} sessions=${sessions} onPick=${(id, sessionId) => go(id, sessionId ? `s/${sessionId}` : "")} onClose=${() => setPalette(false)} />`}
     ${newTask &&
     html`<${NewTask}
       project=${newTask.project}

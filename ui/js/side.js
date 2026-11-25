@@ -97,7 +97,7 @@ export function Sidebar({ projects, tasks, sessions, selected, onSelect, onNewTa
     ${!projects.length && !adding && html`<div class="dim">Add a git repository to start.</div>`}
     <div class="foot">
       <label><input type="checkbox" checked=${archived} onChange=${(e) => setArchived(e.target.checked)} /> Show archived</label>
-      <button class="icon" title="Linear key and write-back" onClick=${onSettings}>Settings</button>
+      <button class="icon" title="Theme, Linear key and write-back" onClick=${onSettings}>Settings</button>
     </div>
   </aside>`;
 }

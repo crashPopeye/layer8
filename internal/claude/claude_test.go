@@ -113,6 +113,15 @@ func TestProtocolAgainstFakeCLI(t *testing.T) {
 	if err := p.Interrupt(); err != nil {
 		t.Fatal(err)
 	}
+	if err := p.SetPermissionMode("acceptEdits"); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.SetPermissionMode(""); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.SetModel("sonnet"); err != nil {
+		t.Fatal(err)
+	}
 	if err := p.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -164,6 +173,22 @@ func TestProtocolAgainstFakeCLI(t *testing.T) {
 	}
 	if ups, _ := perm["updatedPermissions"].([]any); len(ups) != 1 {
 		t.Fatalf("updatedPermissions = %v", perm["updatedPermissions"])
+	}
+
+	var modes []any
+	for _, l := range lines {
+		var m struct {
+			Request map[string]any `json:"request"`
+		}
+		if json.Unmarshal([]byte(l), &m) == nil && m.Request["subtype"] == "set_permission_mode" {
+			modes = append(modes, m.Request["mode"])
+		}
+		if m.Request["subtype"] == "set_model" && m.Request["model"] != "sonnet" {
+			t.Errorf("set_model = %s", l)
+		}
+	}
+	if !slices.Equal(modes, []any{"acceptEdits", "default"}) {
+		t.Fatalf("set_permission_mode modes = %v", modes)
 	}
 
 	hook := response(t, lines, "hook-1")
@@ -222,4 +247,11 @@ func response(t *testing.T, lines []string, id string) map[string]any {
 	}
 	t.Fatalf("no response to %s in:\n%s", id, strings.Join(lines, "\n"))
 	return nil
+}
+
+func TestCommands(t *testing.T) {
+	m := Message{SlashCommands: []string{"compact", "/l8:create-prd"}, Skills: json.RawMessage(`["show-me",{"name":"l8:create-prd"}]`)}
+	if got := m.Commands(); !slices.Equal(got, []string{"compact", "l8:create-prd", "show-me"}) {
+		t.Fatalf("Commands = %v", got)
+	}
 }

@@ -18,7 +18,37 @@ type Message struct {
 	DurationMS      int64           `json:"duration_ms"`
 	TotalCostUSD    float64         `json:"total_cost_usd"`
 	Model           string          `json:"model"`
+	SlashCommands   []string        `json:"slash_commands"`
+	Skills          json.RawMessage `json:"skills"`
 	Raw             json.RawMessage `json:"-"`
+}
+
+// Commands lists the slash commands and skills a system/init message announces, without the leading "/".
+func (m Message) Commands() []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(name string) {
+		name = strings.TrimPrefix(name, "/")
+		if name != "" && !seen[name] {
+			seen[name] = true
+			out = append(out, name)
+		}
+	}
+	for _, c := range m.SlashCommands {
+		add(c)
+	}
+	var skills []json.RawMessage
+	json.Unmarshal(m.Skills, &skills)
+	for _, raw := range skills {
+		var named struct {
+			Name string `json:"name"`
+		}
+		if json.Unmarshal(raw, &named.Name) != nil {
+			json.Unmarshal(raw, &named)
+		}
+		add(named.Name)
+	}
+	return out
 }
 
 // APIMessage is the Anthropic message inside assistant and user lines.

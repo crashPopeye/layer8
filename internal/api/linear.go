@@ -8,16 +8,22 @@ import (
 
 // settings is what the UI may know of config.json: never the key itself.
 type settings struct {
-	LinearConnected bool `json:"linearConnected"`
+	LinearConnected bool   `json:"linearConnected"`
+	Theme           string `json:"theme"`
+}
+
+func (s *server) settings() settings {
+	return settings{LinearConnected: s.tasks.LinearConnected(), Theme: s.tasks.Theme()}
 }
 
 func (s *server) getConfig(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, settings{LinearConnected: s.tasks.LinearConnected()})
+	writeJSON(w, s.settings())
 }
 
 func (s *server) putConfig(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		LinearAPIKey *string `json:"linearApiKey"`
+		Theme        *string `json:"theme"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -26,7 +32,10 @@ func (s *server) putConfig(w http.ResponseWriter, r *http.Request) {
 	if in.LinearAPIKey != nil {
 		err = s.tasks.SetLinearKey(*in.LinearAPIKey)
 	}
-	reply(w, settings{LinearConnected: s.tasks.LinearConnected()}, err)
+	if in.Theme != nil && err == nil {
+		err = s.tasks.SetTheme(*in.Theme)
+	}
+	reply(w, s.settings(), err)
 }
 
 func (s *server) linearIssues(w http.ResponseWriter, r *http.Request) {

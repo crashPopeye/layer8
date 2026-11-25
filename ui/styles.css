@@ -10,6 +10,22 @@
   --terminal-warning: #f6c177;
   --terminal-error: #eb6f92;
   --terminal-selection: #6e6a8633;
+  color-scheme: dark;
+}
+
+[data-theme="dash"] {
+  --terminal-bg: #ffffff;
+  --terminal-bg-alt: #f7f7f7;
+  --terminal-fg: #191919;
+  --terminal-fg-dim: #767676;
+  --terminal-accent: #eb1700;
+  --terminal-accent-alt: #a34400;
+  --terminal-border: #e6e6e6;
+  --terminal-success: #008542;
+  --terminal-warning: #d7a40c;
+  --terminal-error: #b8001f;
+  --terminal-selection: #eb170022;
+  color-scheme: light;
 }
 
 :root {
@@ -270,3 +286,16 @@ select.pick { width: auto; max-width: 140px; font-size: 12px; padding: 2px 4px; 
 .check-row { display: flex; gap: 8px; align-items: center; }
 .merged { border: 1px solid var(--terminal-success); padding: 6px 8px; display: flex; gap: 8px; align-items: center; }
 .merged button { margin-left: auto; }
+
+.composer { position: relative; }
+.complete { position: absolute; left: 14px; right: 14px; bottom: 100%; max-height: 260px; overflow: auto; background: var(--terminal-bg); border: 1px solid var(--terminal-border); z-index: 3; }
+.complete .item, .palette .item { padding: 3px 10px; font-size: 12px; cursor: default; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.complete .item.sel, .palette .item.sel { background: var(--terminal-bg-alt); box-shadow: inset 2px 0 0 var(--terminal-accent); }
+
+.palette { position: fixed; inset: 0; background: #0008; display: flex; justify-content: center; align-items: flex-start; padding-top: 12vh; z-index: 10; }
+.palette .box { width: 560px; max-height: 60vh; background: var(--terminal-bg); border: 1px solid var(--terminal-border); display: flex; flex-direction: column; }
+.palette input { border: 0; border-bottom: 1px solid var(--terminal-border); padding: 10px 12px; font-size: 14px; outline: none; flex: none; }
+.palette .list { overflow: auto; padding: 4px 0; }
+.palette .item { display: flex; gap: 8px; align-items: center; padding: 5px 12px; }
+.palette .item .title { overflow: hidden; text-overflow: ellipsis; }
+.palette .item .detail { margin-left: auto; overflow: hidden; text-overflow: ellipsis; font-size: 11px; }

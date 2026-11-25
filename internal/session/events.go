@@ -59,6 +59,9 @@ func (m *Manager) onSystem(sessionID string, msg claude.Message) {
 			return
 		}
 		s.ClaudeSessionID = msg.SessionID
+		if commands := msg.Commands(); len(commands) > 0 {
+			m.commands[s.TaskID] = commands
+		}
 		if s.Status == "starting" {
 			s.Status = "running"
 		}

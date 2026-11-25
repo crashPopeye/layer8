@@ -1,7 +1,8 @@
 import { html, useState, useEffect, useRef, useCallback } from "/vendor/preact-htm.js";
-import { get, post } from "./api.js";
+import { get, post, put } from "./api.js";
 import { useEvents } from "./events.js";
-import { Composer, PermissionChip } from "./composer.js";
+import { useKeys } from "./keys.js";
+import { Composer, PermissionChip, ModelMenu, nextMode } from "./composer.js";
 
 const statusLabel = {
   starting: "starting",
@@ -157,39 +158,48 @@ function Conversation({ sessionId }) {
   </div>`;
 }
 
-/** SessionView is one session: its header, conversation and composer. */
-export function SessionView({ session }) {
+/** SessionView is one session: its header, conversation and composer. Model, effort and permission
+ * mode change live; onForked receives the fork of this session. */
+export function SessionView({ session, onForked }) {
   const [error, setError] = useState("");
-  const act = (path) => post(`/api/sessions/${session.id}/${path}`).catch((err) => setError(err.message));
+  const fail = (err) => setError(err.message);
+  const act = (path) => post(`/api/sessions/${session.id}/${path}`).catch(fail);
+  const update = (patch) => (setError(""), put(`/api/sessions/${session.id}`, patch).catch(fail));
+  const fork = () => post(`/api/tasks/${session.taskId}/sessions`, { forkFrom: session.id }).then(onForked, fail);
   const busy = session.inTurn;
+  useKeys({ "alt+y": () => update({ permissionMode: nextMode(session.permissionMode) }) });
   return html`<div class="session">
     <div class="shead">
       <${StatusDot} status=${session.status} />
       <b>${session.label}</b>
       <span class="dim">${statusLabel[session.status] || session.status}</span>
-      ${session.model && html`<span class="tag">${session.model}</span>`}
       <span class="spacer"></span>
       ${error && html`<span class="err">${error}</span>`}
       <span class="mono dim" title="context tokens">${kTokens(session.contextTokens)} ctx</span>
       <span class="mono" title="cost">${money(session.costUsd)}</span>
+      <button disabled=${!session.claudeSessionId} title="New session continuing this conversation" onClick=${fork}>Fork</button>
       ${!["stopped", "failed"].includes(session.status) && html`<button onClick=${() => act("stop")}>Stop</button>`}
     </div>
     <${Conversation} sessionId=${session.id} />
     <${Composer}
       autofocus
+      taskId=${session.taskId}
       queued=${session.queued}
       busy=${busy}
       onInterrupt=${() => act("interrupt")}
       onSend=${(text) => post(`/api/sessions/${session.id}/messages`, { text })}
-      chip=${html`<${PermissionChip} mode=${session.permissionMode} />`}
+      controls=${html`<${PermissionChip} mode=${session.permissionMode} onChange=${(permissionMode) => update({ permissionMode })} />
+        <${ModelMenu} model=${session.model} effort=${session.effort} effortTitle=${busy ? "Effort (changes once the turn ends)" : "Effort"} onChange=${update} />`}
     />
   </div>`;
 }
 
-/** NewSession starts a session in a task from a label and a first message. */
+/** NewSession starts a session in a task from a label, a first message and its model, effort and permission mode. */
 export function NewSession({ task, onStarted }) {
   const [label, setLabel] = useState("");
-  const [mode, setMode] = useState("default");
+  const [opts, setOpts] = useState({ permissionMode: "default", model: "", effort: "" });
+  const set = (patch) => setOpts({ ...opts, ...patch });
+  useKeys({ "alt+y": () => set({ permissionMode: nextMode(opts.permissionMode) }) });
   return html`<div class="session">
     <div class="shead">
       <span class="lbl">New session</span>
@@ -198,9 +208,11 @@ export function NewSession({ task, onStarted }) {
     <div class="conversation"><div class="dim">The session runs claude in ${task.worktree} with your full Claude Code config.</div></div>
     <${Composer}
       autofocus
-      placeholder="First message…"
-      onSend=${async (prompt) => onStarted(await post(`/api/tasks/${task.id}/sessions`, { label, prompt, permissionMode: mode }))}
-      chip=${html`<${PermissionChip} mode=${mode} onChange=${setMode} />`}
+      taskId=${task.id}
+      placeholder="First message…  / commands · @ files"
+      onSend=${async (prompt) => onStarted(await post(`/api/tasks/${task.id}/sessions`, { label, prompt, ...opts }))}
+      controls=${html`<${PermissionChip} mode=${opts.permissionMode} onChange=${(permissionMode) => set({ permissionMode })} />
+        <${ModelMenu} model=${opts.model} effort=${opts.effort} onChange=${set} />`}
     />
   </div>`;
 }

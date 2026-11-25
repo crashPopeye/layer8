@@ -1,6 +1,27 @@
 import { html, useState, useEffect } from "/vendor/preact-htm.js";
 import { get, put } from "./api.js";
 
+export const themes = [
+  ["rose-pine", "Rose Pine (dark)"],
+  ["dash", "Dash (light)"],
+];
+
+const themeListeners = new Set();
+
+/** applyTheme switches the palette now and on the next load; diagrams redraw through useTheme. */
+export function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  localStorage.setItem("theme", theme);
+  themeListeners.forEach((fn) => fn(theme));
+}
+
+/** useTheme is the current palette's name, updated when it changes. */
+export function useTheme() {
+  const [theme, setTheme] = useState(document.documentElement.dataset.theme);
+  useEffect(() => (themeListeners.add(setTheme), () => themeListeners.delete(setTheme)), []);
+  return theme;
+}
+
 /** useLinear reports whether a Linear API key is set, or null while it is unknown. */
 export function useLinear() {
   const [connected, setConnected] = useState(null);
@@ -13,11 +34,12 @@ export function useLinear() {
   return connected;
 }
 
-/** Settings is the dialog holding the Linear API key and each project's Linear write-back toggle. */
+/** Settings is the dialog holding the theme, the Linear API key and each project's Linear write-back toggle. */
 export function Settings({ projects, onClose }) {
   const [connected, setConnected] = useState(null);
   const [key, setKey] = useState("");
   const [error, setError] = useState("");
+  const theme = useTheme();
   useEffect(() => {
     get("/api/config").then((c) => setConnected(c.linearConnected), (err) => setError(err.message));
   }, []);
@@ -36,11 +58,21 @@ export function Settings({ projects, onClose }) {
       setError(err.message);
     }
   };
+  const pickTheme = (e) => {
+    applyTheme(e.target.value);
+    put("/api/config", { theme: e.target.value }).catch((err) => setError(err.message));
+  };
   const writeBack = (p) => (e) => put(`/api/projects/${p.id}`, { linearWriteBack: e.target.checked }).catch((err) => setError(err.message));
 
   return html`<div class="scrim" onClick=${(e) => e.target === e.currentTarget && onClose()}>
     <div class="dialog">
       <div class="lbl">Settings</div>
+      <label class="field">
+        <span class="lbl">Theme</span>
+        <select value=${theme} onChange=${pickTheme}>
+          ${themes.map(([value, label]) => html`<option value=${value}>${label}</option>`)}
+        </select>
+      </label>
       <form class="field" onSubmit=${(e) => (e.preventDefault(), saveKey(key.trim()))}>
         <span class="lbl">Linear personal API key ${connected ? "· connected" : connected === false ? "· not connected" : ""}</span>
         <div class="row-inline">

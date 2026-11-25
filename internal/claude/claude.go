@@ -143,8 +143,11 @@ func (p *Process) SetModel(model string) error {
 	return p.call(map[string]any{"subtype": "set_model", "model": m})
 }
 
-// SetPermissionMode switches how tool calls are approved.
+// SetPermissionMode switches how tool calls are approved; "" goes back to "default".
 func (p *Process) SetPermissionMode(mode string) error {
+	if mode == "" {
+		mode = "default"
+	}
 	return p.call(map[string]any{"subtype": "set_permission_mode", "mode": mode})
 }
 

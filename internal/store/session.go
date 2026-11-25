@@ -140,6 +140,13 @@ func (s *Store) AppendEvent(sessionID, kind, parentToolUseID string, body any) (
 	return e, err
 }
 
+// CopyEvents gives session to the conversation of session from, approvals left out since they belong to from.
+func (s *Store) CopyEvents(from, to string) error {
+	_, err := s.db.Exec(`INSERT INTO events (session_id, seq, kind, parent_tool_use_id, body, created_at)
+	  SELECT ?, seq, kind, parent_tool_use_id, body, created_at FROM events WHERE session_id = ? AND kind != 'approval'`, to, from)
+	return err
+}
+
 // Events returns a session's events with seq greater than after, in order.
 func (s *Store) Events(sessionID string, after int) ([]Event, error) {
 	rows, err := s.db.Query(`SELECT session_id, seq, kind, COALESCE(parent_tool_use_id,''), body, created_at

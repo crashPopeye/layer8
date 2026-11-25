@@ -53,6 +53,9 @@ func New(st *store.Store, hub *Hub, tasks *task.Service, sessions *session.Manag
 	mux.HandleFunc("GET /api/sessions", s.activeSessions)
 	mux.HandleFunc("GET /api/tasks/{id}/sessions", s.listSessions)
 	mux.HandleFunc("POST /api/tasks/{id}/sessions", s.startSession)
+	mux.HandleFunc("GET /api/tasks/{id}/commands", s.commands)
+	mux.HandleFunc("GET /api/tasks/{id}/files", s.files)
+	mux.HandleFunc("PUT /api/sessions/{id}", s.updateSession)
 	mux.HandleFunc("GET /api/sessions/{id}/events", s.listEvents)
 	mux.HandleFunc("GET /api/sessions/{id}/approvals", s.listApprovals)
 	mux.HandleFunc("POST /api/sessions/{id}/messages", s.sendMessage)
@@ -216,6 +219,25 @@ func (s *server) startSession(w http.ResponseWriter, r *http.Request) {
 	}
 	ss, err := s.sessions.Start(r.Context(), r.PathValue("id"), in)
 	reply(w, ss, err)
+}
+
+func (s *server) updateSession(w http.ResponseWriter, r *http.Request) {
+	var in session.Update
+	if !decode(w, r, &in) {
+		return
+	}
+	ss, err := s.sessions.Update(r.PathValue("id"), in)
+	reply(w, ss, err)
+}
+
+func (s *server) commands(w http.ResponseWriter, r *http.Request) {
+	commands, err := s.sessions.Commands(r.PathValue("id"))
+	reply(w, commands, err)
+}
+
+func (s *server) files(w http.ResponseWriter, r *http.Request) {
+	files, err := s.tasks.Files(r.Context(), r.PathValue("id"), r.URL.Query().Get("q"))
+	reply(w, files, err)
 }
 
 func (s *server) listEvents(w http.ResponseWriter, r *http.Request) {

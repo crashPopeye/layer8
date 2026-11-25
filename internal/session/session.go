@@ -3,6 +3,7 @@
 package session
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -66,8 +67,9 @@ type Manager struct {
 	cfg     Config
 	refresh *coalescer
 
-	mu   sync.Mutex
-	live map[string]*live
+	mu       sync.Mutex
+	live     map[string]*live
+	commands map[string][]string
 }
 
 type live struct {
@@ -80,7 +82,7 @@ type live struct {
 }
 
 func NewManager(st *store.Store, publish func(any), spawn Spawner, cfg Config) *Manager {
-	m := &Manager{store: st, publish: publish, spawn: spawn, cfg: cfg, live: map[string]*live{}}
+	m := &Manager{store: st, publish: publish, spawn: spawn, cfg: cfg, live: map[string]*live{}, commands: map[string][]string{}}
 	m.refresh = newCoalescer(RefreshWindow, func(taskID string) {
 		publish(map[string]any{"kind": "artifacts", "id": taskID})
 		publish(map[string]any{"kind": "changes", "id": taskID})
@@ -116,23 +118,51 @@ func (m *Manager) Sessions(taskRef string) ([]View, error) {
 	return views, nil
 }
 
+// Commands lists the slash commands and skills the task's sessions last announced, empty until one has started.
+func (m *Manager) Commands(taskRef string) ([]string, error) {
+	t, err := m.store.Task(taskRef)
+	if err != nil {
+		return nil, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]string{}, m.commands[t.ID]...), nil
+}
+
 // StartInput describes a new session; a non-empty Prompt is sent as its first message.
+// ForkFrom names a session of the same task whose conversation the new one continues.
 type StartInput struct {
 	Label          string `json:"label"`
 	Prompt         string `json:"prompt"`
 	Model          string `json:"model"`
 	Effort         string `json:"effort"`
 	PermissionMode string `json:"permissionMode"`
+	ForkFrom       string `json:"forkFrom"`
 }
 
-// Start creates a session in the task and sends its first message.
+func validMode(mode string) error {
+	if mode != "" && !slices.Contains(PermissionModes, mode) {
+		return fmt.Errorf("%w: unknown permission mode %q", ErrInvalid, mode)
+	}
+	return nil
+}
+
+// Start creates a session in the task, or a fork of one of its sessions, and sends its first message.
 func (m *Manager) Start(ctx context.Context, taskRef string, in StartInput) (store.Session, error) {
-	if in.PermissionMode != "" && !slices.Contains(PermissionModes, in.PermissionMode) {
-		return store.Session{}, fmt.Errorf("%w: unknown permission mode %q", ErrInvalid, in.PermissionMode)
+	if err := validMode(in.PermissionMode); err != nil {
+		return store.Session{}, err
 	}
 	t, err := m.store.Task(taskRef)
 	if err != nil {
 		return store.Session{}, err
+	}
+	var src store.Session
+	if in.ForkFrom != "" {
+		if src, err = m.forkSource(t.ID, in.ForkFrom); err != nil {
+			return store.Session{}, err
+		}
+		in.Label = cmp.Or(strings.TrimSpace(in.Label), src.Label+" fork")
+		in.Model, in.Effort, in.PermissionMode = cmp.Or(in.Model, src.Model), cmp.Or(in.Effort, src.Effort), cmp.Or(in.PermissionMode, src.PermissionMode)
 	}
 	s := store.Session{
 		ID:             uuid.Must(uuid.NewV7()).String(),
@@ -142,6 +172,7 @@ func (m *Manager) Start(ctx context.Context, taskRef string, in StartInput) (sto
 		Model:          in.Model,
 		Effort:         in.Effort,
 		PermissionMode: in.PermissionMode,
+		ForkedFrom:     src.ID,
 		Status:         "ready_for_input",
 		CreatedAt:      time.Now().UnixMilli(),
 	}
@@ -151,6 +182,12 @@ func (m *Manager) Start(ctx context.Context, taskRef string, in StartInput) (sto
 	if err := m.store.InsertSession(s); err != nil {
 		return store.Session{}, err
 	}
+	if s.ForkedFrom != "" {
+		if err := m.store.CopyEvents(src.ID, s.ID); err != nil {
+			return store.Session{}, err
+		}
+		m.emit(s.ID, "system", "", map[string]string{"subtype": "fork", "text": "Forked from " + src.Label})
+	}
 	m.notify(s, "session")
 	if strings.TrimSpace(in.Prompt) != "" {
 		if _, err := m.Send(ctx, s.ID, in.Prompt); err != nil {
@@ -158,6 +195,81 @@ func (m *Manager) Start(ctx context.Context, taskRef string, in StartInput) (sto
 		}
 	}
 	return m.store.Session(s.ID)
+}
+
+// forkSource is the session of task taskID that sessionID names, once it has a transcript to fork.
+func (m *Manager) forkSource(taskID, sessionID string) (store.Session, error) {
+	src, err := m.store.Session(sessionID)
+	if err != nil {
+		return src, err
+	}
+	if src.TaskID != taskID {
+		return src, fmt.Errorf("%w: session %s belongs to another task", ErrInvalid, sessionID)
+	}
+	if src.ClaudeSessionID == "" {
+		return src, fmt.Errorf("%w: session %s has no conversation to fork yet", ErrInvalid, sessionID)
+	}
+	return src, nil
+}
+
+// Update is a change to a session's model, effort or permission mode; nil fields stay as they are.
+type Update struct {
+	Model          *string `json:"model"`
+	Effort         *string `json:"effort"`
+	PermissionMode *string `json:"permissionMode"`
+}
+
+// Update applies u to the session. A live process switches model and permission
+// mode at once; a new effort needs a new process, so an idle one is closed and the
+// next message resumes the transcript with it.
+func (m *Manager) Update(sessionID string, u Update) (store.Session, error) {
+	if u.PermissionMode != nil {
+		if err := validMode(*u.PermissionMode); err != nil {
+			return store.Session{}, err
+		}
+	}
+	m.mu.Lock()
+	s, err := m.store.Session(sessionID)
+	if err != nil {
+		m.mu.Unlock()
+		return s, err
+	}
+	before := s
+	s.Model = deref(u.Model, s.Model)
+	s.Effort = deref(u.Effort, s.Effort)
+	s.PermissionMode = deref(u.PermissionMode, s.PermissionMode)
+	l := m.live[sessionID]
+	respawn := l != nil && s.Effort != before.Effort
+	if respawn && s.InTurn {
+		m.mu.Unlock()
+		return before, fmt.Errorf("%w: effort can change once the turn ends", ErrInvalid)
+	}
+	if respawn {
+		delete(m.live, sessionID)
+	}
+	err = m.save(s)
+	m.mu.Unlock()
+	if err != nil || l == nil {
+		return s, err
+	}
+	if respawn {
+		go l.proc.Close()
+		return s, nil
+	}
+	if s.Model != before.Model {
+		err = l.proc.SetModel(s.Model)
+	}
+	if s.PermissionMode != before.PermissionMode {
+		err = errors.Join(err, l.proc.SetPermissionMode(s.PermissionMode))
+	}
+	return s, err
+}
+
+func deref(p *string, fallback string) string {
+	if p == nil {
+		return fallback
+	}
+	return strings.TrimSpace(*p)
 }
 
 // Send writes a user message to the session, spawning its process with --resume
@@ -212,6 +324,14 @@ func (m *Manager) spawnLocked(s store.Session) (*live, error) {
 			parent = &pt
 		}
 	}
+	resume, fork := s.ClaudeSessionID, false
+	if resume == "" && s.ForkedFrom != "" {
+		src, err := m.store.Session(s.ForkedFrom)
+		if err != nil {
+			return nil, err
+		}
+		resume, fork = src.ClaudeSessionID, true
+	}
 	artifacts := filepath.Join(m.cfg.ArtifactsRoot, t.ID)
 	l := &live{baseCost: s.CostUSD, waiting: map[string]chan claude.PermissionDecision{}}
 	if m.cfg.LogDir != "" {
@@ -221,7 +341,8 @@ func (m *Manager) spawnLocked(s store.Session) (*live, error) {
 	}
 	opts := claude.Options{
 		Cwd:                t.Worktree,
-		Resume:             s.ClaudeSessionID,
+		Resume:             resume,
+		Fork:               fork,
 		Model:              s.Model,
 		Effort:             s.Effort,
 		PermissionMode:     s.PermissionMode,

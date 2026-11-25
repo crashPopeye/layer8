@@ -8,9 +8,10 @@ import (
 	"path/filepath"
 )
 
-// Config is what the user sets once, such as their Linear API key.
+// Config is what the user sets once, such as their Linear API key and the UI theme.
 type Config struct {
 	LinearAPIKey string `json:"linearApiKey,omitempty"`
+	Theme        string `json:"theme,omitempty"`
 }
 
 func path(home string) string { return filepath.Join(home, "config.json") }
