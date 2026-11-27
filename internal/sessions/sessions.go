@@ -59,6 +59,9 @@ type Manager struct {
 	runs   map[string]*run
 	queue  []*run
 	probes map[string]*probe
+
+	lmu    sync.Mutex
+	limits map[[2]string]limit
 }
 
 // Event is one transcript entry as stored and streamed. Partial events have no id.
@@ -89,7 +92,7 @@ func Register(t *tree.Tree, db *sql.DB, ts *tasks.Service, o Options) *Manager {
 			return nil
 		}
 	}
-	m := &Manager{db: db, tree: t, tasks: ts, o: o, runs: map[string]*run{}, probes: map[string]*probe{}}
+	m := &Manager{db: db, tree: t, tasks: ts, o: o, runs: map[string]*run{}, probes: map[string]*probe{}, limits: map[[2]string]limit{}}
 	db.Exec(`UPDATE sessions SET status = 'idle' WHERE status IN ('queued', 'starting', 'running', 'waiting')`)
 	db.Exec(`UPDATE approvals SET status = 'expired' WHERE status = 'pending'`)
 
@@ -129,6 +132,7 @@ func Register(t *tree.Tree, db *sql.DB, ts *tasks.Service, o Options) *Manager {
 			"title":{"type":"string"}}}`),
 	})
 	t.AddChildren("task", m.taskSessions)
+	m.registerUsage(t)
 	t.Here = m.here
 	return m
 }
@@ -145,17 +149,17 @@ type row struct {
 	Status, Title, Skill, WorkflowStep, Error, CreatedBy, CreatedAt             string
 	Fork                                                                        bool
 	CostUSD                                                                     float64
-	ContextTokens                                                               int
+	ContextTokens, ContextWindow                                                int
 	Capabilities                                                                sql.NullString
 }
 
 func (m *Manager) load(ctx context.Context, id8 string) (row, error) {
 	var s row
 	err := m.db.QueryRowContext(ctx, `SELECT s.id, s.id8, t.slug, s.harness, s.model, s.effort, s.permission_mode, s.harness_session_id,
-		s.status, s.title, s.skill, s.workflow_step, s.error, s.created_by, s.created_at, s.fork, s.cost_usd, s.context_tokens, s.capabilities
+		s.status, s.title, s.skill, s.workflow_step, s.error, s.created_by, s.created_at, s.fork, s.cost_usd, s.context_tokens, s.context_window, s.capabilities
 		FROM sessions s JOIN tasks t ON t.id = s.task_id WHERE s.id8 = ?`, id8).Scan(
 		&s.ID, &s.ID8, &s.TaskSlug, &s.Harness, &s.Model, &s.Effort, &s.PermissionMode, &s.HarnessSessionID,
-		&s.Status, &s.Title, &s.Skill, &s.WorkflowStep, &s.Error, &s.CreatedBy, &s.CreatedAt, &s.Fork, &s.CostUSD, &s.ContextTokens, &s.Capabilities)
+		&s.Status, &s.Title, &s.Skill, &s.WorkflowStep, &s.Error, &s.CreatedBy, &s.CreatedAt, &s.Fork, &s.CostUSD, &s.ContextTokens, &s.ContextWindow, &s.Capabilities)
 	if errors.Is(err, sql.ErrNoRows) {
 		return row{}, fmt.Errorf("%w: %s", tree.ErrNotFound, addr(id8))
 	}
@@ -178,7 +182,7 @@ func (m *Manager) get(ctx context.Context, a tree.Addr) (tree.Node, error) {
 	return tree.Node{Title: s.Title, Fields: map[string]any{
 		"id": s.ID, "task": tasks.AddrOf(s.TaskSlug), "harness": s.Harness, "model": s.Model, "effort": s.Effort,
 		"permissionMode": s.PermissionMode, "harnessSessionId": s.HarnessSessionID, "status": s.Status, "skill": s.Skill,
-		"workflowStep": s.WorkflowStep, "costUsd": s.CostUSD, "contextTokens": s.ContextTokens, "error": s.Error,
+		"workflowStep": s.WorkflowStep, "costUsd": s.CostUSD, "contextTokens": s.ContextTokens, "contextWindow": s.ContextWindow, "error": s.Error,
 		"createdBy": s.CreatedBy, "createdAt": s.CreatedAt, "capabilities": caps, "approvals": approvals,
 	}}, nil
 }

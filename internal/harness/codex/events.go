@@ -2,24 +2,74 @@ package codex
 
 import (
 	"cmp"
+	"context"
 	"encoding/json"
+	"fmt"
+	"slices"
 	"strings"
 	"sync"
 
 	"github.com/crashPopeye/layer8/internal/harness"
 )
 
+type breakdown struct {
+	TotalTokens  int `json:"totalTokens"`
+	InputTokens  int `json:"inputTokens"`
+	CachedTokens int `json:"cachedInputTokens"`
+	CacheWrite   int `json:"cacheWriteInputTokens"`
+	OutputTokens int `json:"outputTokens"`
+}
+
+func (b breakdown) minus(o breakdown) breakdown {
+	return breakdown{b.TotalTokens - o.TotalTokens, b.InputTokens - o.InputTokens, b.CachedTokens - o.CachedTokens,
+		b.CacheWrite - o.CacheWrite, b.OutputTokens - o.OutputTokens}
+}
+
+func (b breakdown) tokens() harness.Tokens {
+	return harness.Tokens{Input: b.InputTokens - b.CachedTokens, Output: b.OutputTokens, CacheRead: b.CachedTokens, CacheWrite: b.CacheWrite}
+}
+
 type tokenUsage struct {
-	Total struct {
-		TotalTokens int `json:"totalTokens"`
-	} `json:"total"`
-	Last struct {
-		InputTokens  int `json:"inputTokens"`
-		CachedTokens int `json:"cachedInputTokens"`
-		OutputTokens int `json:"outputTokens"`
-		TotalTokens  int `json:"totalTokens"`
-	} `json:"last"`
-	ContextWindow int `json:"modelContextWindow"`
+	Total         breakdown `json:"total"`
+	Last          breakdown `json:"last"`
+	ContextWindow int       `json:"modelContextWindow"`
+}
+
+type rateWindow struct {
+	UsedPercent float64 `json:"usedPercent"`
+	Minutes     *int    `json:"windowDurationMins"`
+	ResetsAt    int64   `json:"resetsAt"`
+}
+
+type rateLimits struct {
+	Primary   *rateWindow `json:"primary"`
+	Secondary *rateWindow `json:"secondary"`
+}
+
+// limits returns the windows the snapshot holds; a sparse update leaves the others out.
+func (r rateLimits) limits() []harness.Limit {
+	var out []harness.Limit
+	for fallback, w := range map[string]*rateWindow{"primary": r.Primary, "secondary": r.Secondary} {
+		if w != nil {
+			out = append(out, harness.Limit{Window: windowName(w.Minutes, fallback), UsedPercent: w.UsedPercent, ResetsAt: w.ResetsAt})
+		}
+	}
+	slices.SortFunc(out, func(a, b harness.Limit) int { return cmp.Compare(a.Window, b.Window) })
+	return out
+}
+
+func windowName(minutes *int, fallback string) string {
+	switch {
+	case minutes == nil:
+		return fallback
+	case *minutes == 7*24*60:
+		return "weekly"
+	case *minutes%(24*60) == 0:
+		return fmt.Sprintf("%dd", *minutes/(24*60))
+	case *minutes%60 == 0:
+		return fmt.Sprintf("%dh", *minutes/60)
+	}
+	return fmt.Sprintf("%dm", *minutes)
 }
 
 type change struct {
@@ -102,12 +152,13 @@ func toolResult(it item) (content any, isError bool) {
 
 func (p *proc) notify(method string, raw json.RawMessage) {
 	var n struct {
-		Delta     string     `json:"delta"`
-		Item      item       `json:"item"`
-		Turn      turn       `json:"turn"`
-		Usage     tokenUsage `json:"tokenUsage"`
-		WillRetry bool       `json:"willRetry"`
-		Error     struct {
+		Delta      string     `json:"delta"`
+		Item       item       `json:"item"`
+		Turn       turn       `json:"turn"`
+		Usage      tokenUsage `json:"tokenUsage"`
+		RateLimits rateLimits `json:"rateLimits"`
+		WillRetry  bool       `json:"willRetry"`
+		Error      struct {
 			Message           string `json:"message"`
 			AdditionalDetails string `json:"additionalDetails"`
 		} `json:"error"`
@@ -134,7 +185,12 @@ func (p *proc) notify(method string, raw json.RawMessage) {
 	case "turn/completed":
 		p.turnCompleted(n.Turn)
 	case "thread/tokenUsage/updated":
+		if p.usage == (tokenUsage{}) {
+			p.counted = n.Usage.Total.minus(n.Usage.Last)
+		}
 		p.usage = n.Usage
+	case "account/rateLimits/updated":
+		p.emitLimits(n.RateLimits)
 	case "error":
 		if !n.WillRetry {
 			p.emit(harness.EventError, false, map[string]any{"message": n.Error.Message, "details": n.Error.AdditionalDetails})
@@ -189,8 +245,33 @@ func (p *proc) turnCompleted(t turn) {
 	}
 	p.text = ""
 	u := p.usage
+	tokens := u.Total.minus(p.counted).tokens()
+	p.counted = u.Total
 	p.endTurn(map[string]any{"subtype": subtype, "isError": t.Status != "completed", "result": result, "sessionId": p.thread,
-		"costUsd": 0.0, "durationMs": t.DurationMS, "usage": u, "contextTokens": u.Last.TotalTokens, "contextWindow": u.ContextWindow})
+		"costUsd": 0.0, "durationMs": t.DurationMS, "usage": u, "tokens": tokens, "contextTokens": u.Last.TotalTokens, "contextWindow": u.ContextWindow})
+}
+
+// readLimits asks for the account's rate-limit windows and reports them once they arrive;
+// an account without limits reports none.
+func (p *proc) readLimits() {
+	ch, err := p.request("account/rateLimits/read", nil)
+	if err != nil {
+		return
+	}
+	go func() {
+		var r struct {
+			RateLimits rateLimits `json:"rateLimits"`
+		}
+		if body, err := p.await(context.Background(), ch); err == nil && json.Unmarshal(body, &r) == nil {
+			p.emitLimits(r.RateLimits)
+		}
+	}()
+}
+
+func (p *proc) emitLimits(r rateLimits) {
+	if limits := r.limits(); len(limits) > 0 {
+		p.emit(harness.EventLimits, false, map[string]any{"limits": limits})
+	}
 }
 
 // serverRequest turns codex approval requests into permission requests and refuses

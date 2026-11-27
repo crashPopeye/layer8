@@ -117,6 +117,8 @@ var migrations = []string{
 		created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 	);
 	CREATE INDEX comments_task ON comments (task_id, target, path);`,
+	`ALTER TABLE sessions ADD COLUMN context_window INTEGER NOT NULL DEFAULT 0;
+	CREATE INDEX session_events_type_at ON session_events (type, at);`,
 }
 
 // Open opens the database at path and applies pending migrations.

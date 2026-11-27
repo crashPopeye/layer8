@@ -257,6 +257,46 @@ type usage struct {
 	Output        int `json:"output_tokens"`
 }
 
+func (u usage) tokens() harness.Tokens {
+	return harness.Tokens{Input: u.Input, Output: u.Output, CacheRead: u.CacheRead, CacheWrite: u.CacheCreation}
+}
+
+type window struct {
+	Utilization *float64 `json:"utilization"`
+	ResetsAt    int64    `json:"resetsAt"`
+	Status      string   `json:"status"`
+}
+
+type rateLimitInfo struct {
+	window
+	Type    string            `json:"rateLimitType"`
+	Windows map[string]window `json:"unifiedWindows"`
+}
+
+var windowNames = map[string]string{"five_hour": "5h", "seven_day": "weekly", "seven_day_opus": "weekly opus", "seven_day_sonnet": "weekly sonnet"}
+
+// limits returns the account windows the event reports, all of them when it has unified windows.
+func (r rateLimitInfo) limits() []harness.Limit {
+	windows := r.Windows
+	if len(windows) == 0 {
+		windows = map[string]window{r.Type: r.window}
+	}
+	var out []harness.Limit
+	for key, w := range windows {
+		name, known := windowNames[key]
+		if !known || w.Utilization == nil && w.Status != "rejected" {
+			continue
+		}
+		used := 100.0
+		if w.Utilization != nil {
+			used = *w.Utilization * 100
+		}
+		out = append(out, harness.Limit{Window: name, UsedPercent: used, ResetsAt: w.ResetsAt})
+	}
+	slices.SortFunc(out, func(a, b harness.Limit) int { return cmp.Compare(a.Window, b.Window) })
+	return out
+}
+
 type block struct {
 	Type      string          `json:"type"`
 	Text      string          `json:"text"`
@@ -300,6 +340,10 @@ type message struct {
 	DurationMS int             `json:"duration_ms"`
 	NumTurns   int             `json:"num_turns"`
 	Usage      json.RawMessage `json:"usage"`
+	ModelUsage map[string]struct {
+		ContextWindow int `json:"contextWindow"`
+	} `json:"modelUsage"`
+	RateLimit rateLimitInfo `json:"rate_limit_info"`
 }
 
 var liveSystem = map[string]bool{"status": true, "thinking_tokens": true, "hook_started": true, "hook_progress": true, "hook_response": true}
@@ -354,9 +398,19 @@ func (p *proc) handle(line []byte) {
 			}
 		}
 	case "result":
+		var u usage
+		json.Unmarshal(m.Usage, &u)
+		contextWindow := 0
+		for _, mu := range m.ModelUsage {
+			contextWindow = max(contextWindow, mu.ContextWindow)
+		}
 		p.emit(harness.EventResult, false, map[string]any{"subtype": m.Subtype, "isError": m.IsError, "result": m.Result,
 			"sessionId": m.SessionID, "costUsd": m.CostUSD, "durationMs": m.DurationMS, "numTurns": m.NumTurns,
-			"usage": m.Usage, "contextTokens": p.context}, nil)
+			"usage": m.Usage, "tokens": u.tokens(), "contextTokens": p.context, "contextWindow": contextWindow}, nil)
+	case "rate_limit_event":
+		if limits := m.RateLimit.limits(); len(limits) > 0 {
+			p.emit(harness.EventLimits, false, map[string]any{"limits": limits}, nil)
+		}
 	case "system":
 		var data map[string]any
 		json.Unmarshal(line, &data)

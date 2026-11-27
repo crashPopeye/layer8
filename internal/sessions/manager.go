@@ -201,7 +201,7 @@ func (m *Manager) spawn(r *run) (harness.Proc, float64, error) {
 		AllowedTools: allowed,
 		AppendSystemPrompt: fmt.Sprintf("You are running inside layer8 as session:%s in %s. The task tree's shared artifacts folder is %s ($LAYER8_ARTIFACTS). "+
 			"Read the layer8://here MCP resource for your task and the actions you can apply with the layer8 do tool.", r.id8, t.Addr(), t.Artifacts),
-	}, &sink{m: m, r: r})
+	}, &sink{m: m, r: r, harness: s.Harness})
 	return p, s.CostUSD, err
 }
 
@@ -353,12 +353,18 @@ func (m *Manager) restartAfterTurn(id8 string) {
 
 // sink receives one process's output.
 type sink struct {
-	m *Manager
-	r *run
+	m       *Manager
+	r       *run
+	harness string
 }
 
 func (s *sink) OnEvent(e harness.Event) {
 	m, id8 := s.m, s.r.id8
+	if e.Type == harness.EventLimits {
+		limits, _ := e.Data["limits"].([]harness.Limit)
+		m.setLimits(s.harness, limits)
+		return
+	}
 	if e.Partial {
 		m.publish(id8, Event{Type: e.Type, Partial: true, Data: e.Data})
 		return
@@ -386,7 +392,8 @@ func (m *Manager) endTurn(r *run, data map[string]any) {
 	m.saveHarnessID(r.id8, data["sessionId"])
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.db.Exec(`UPDATE sessions SET cost_usd = ?, context_tokens = ? WHERE id8 = ?`, r.baseCost+number(data["costUsd"]), int(number(data["contextTokens"])), r.id8)
+	m.db.Exec(`UPDATE sessions SET cost_usd = ?, context_tokens = ?, context_window = COALESCE(NULLIF(?, 0), context_window) WHERE id8 = ?`,
+		r.baseCost+number(data["costUsd"]), int(number(data["contextTokens"])), int(number(data["contextWindow"])), r.id8)
 	r.turns = max(r.turns-1, 0)
 	r.active = time.Now()
 	if r.idleLive() {
@@ -398,6 +405,7 @@ func (m *Manager) endTurn(r *run, data map[string]any) {
 	}
 	m.sync(r)
 	m.changed(r.id8)
+	m.tree.Changed(usageAddr)
 }
 
 func number(v any) float64 {
