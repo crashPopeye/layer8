@@ -21,6 +21,8 @@ type Config struct {
 	LinearClientID string `json:"linearClientId"`
 	// GitHubToken is used instead of `gh auth token` when set.
 	GitHubToken string `json:"githubToken"`
+	// AutoApproveDo lets sessions call the layer8 do tool without asking the user.
+	AutoApproveDo bool `json:"autoApproveDo"`
 }
 
 // Apps names the macOS applications a task's "open" action uses.

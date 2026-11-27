@@ -1,10 +1,8 @@
 package claude
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -13,98 +11,12 @@ import (
 	"time"
 
 	"github.com/crashPopeye/layer8/internal/harness"
+	"github.com/crashPopeye/layer8/internal/harness/claude/claudetest"
 )
 
-const fakeEnv = "LAYER8_FAKE_CLAUDE_LOG"
-
 func TestMain(m *testing.M) {
-	if log := os.Getenv(fakeEnv); log != "" {
-		fakeClaude(log)
-		os.Exit(0)
-	}
+	claudetest.Main()
 	os.Exit(m.Run())
-}
-
-// fakeClaude speaks a scripted subset of the stream-json protocol, appending its
-// argv and every stdin line to the log file.
-func fakeClaude(logPath string) {
-	logf, _ := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
-	argv, _ := json.Marshal(os.Args[1:])
-	fmt.Fprintf(logf, "%s\n", argv)
-	out := json.NewEncoder(os.Stdout)
-	in := bufio.NewScanner(os.Stdin)
-	in.Buffer(nil, 1<<20)
-	for in.Scan() {
-		fmt.Fprintf(logf, "%s\n", in.Bytes())
-		var m struct {
-			Type      string `json:"type"`
-			RequestID string `json:"request_id"`
-			Request   struct {
-				Subtype string `json:"subtype"`
-			} `json:"request"`
-			Message struct {
-				Content []struct {
-					Text string `json:"text"`
-				} `json:"content"`
-			} `json:"message"`
-		}
-		json.Unmarshal(in.Bytes(), &m)
-		ok := func(body any) {
-			out.Encode(map[string]any{"type": "control_response", "response": map[string]any{"subtype": "success", "request_id": m.RequestID, "response": body}})
-		}
-		switch {
-		case m.Request.Subtype == "initialize" && os.Getenv("FAKE_INIT_CRASH") != "":
-			fmt.Fprintln(os.Stderr, "not logged in")
-			os.Exit(1)
-		case m.Request.Subtype == "initialize":
-			ok(map[string]any{
-				"commands": []any{
-					map[string]any{"name": "review", "description": "Review code (user)", "argumentHint": "[pr]"},
-					map[string]any{"name": "layer8:plan", "description": "(layer8) Plan the work"},
-					map[string]any{"name": "context", "description": "Show context usage", "builtin": true},
-				},
-				"models": []any{map[string]any{"value": "opus", "displayName": "Opus", "description": "Best", "supportedEffortLevels": []string{"low", "high"}}},
-				"agents": []any{map[string]any{"name": "Explore", "description": "Search code"}},
-			})
-		case m.Request.Subtype == "mcp_status":
-			ok(map[string]any{"mcpServers": []any{
-				map[string]any{"name": "layer8", "status": "connected", "source": "dynamic", "config": map[string]any{"headers": map[string]string{"Authorization": "secret"}}},
-				map[string]any{"name": "claude.ai Linear", "status": "needs-auth", "source": "claudeai"},
-			}})
-		case m.Request.Subtype == "interrupt":
-			ok(nil)
-			out.Encode(map[string]any{"type": "result", "subtype": "error_during_execution", "is_error": true, "session_id": "s1"})
-		case m.Type == "control_response":
-			out.Encode(map[string]any{"type": "user", "message": map[string]any{"content": []any{
-				map[string]any{"type": "tool_result", "tool_use_id": "tu1", "content": "written", "is_error": false}}}})
-			out.Encode(map[string]any{"type": "result", "subtype": "success", "session_id": "s1", "total_cost_usd": 0.02})
-		case m.Type == "user" && len(m.Message.Content) > 0:
-			switch m.Message.Content[0].Text {
-			case "hello":
-				out.Encode(map[string]any{"type": "system", "subtype": "init", "session_id": "s1", "skills": []string{"review"}, "mcp_servers": []any{map[string]any{"name": "layer8", "status": "connected"}}})
-				out.Encode(map[string]any{"type": "system", "subtype": "status", "status": "requesting"})
-				for _, d := range []string{"Hel", "lo"} {
-					out.Encode(map[string]any{"type": "stream_event", "parent_tool_use_id": nil, "event": map[string]any{"type": "content_block_delta", "delta": map[string]any{"type": "text_delta", "text": d}}})
-				}
-				out.Encode(map[string]any{"type": "assistant", "parent_tool_use_id": nil, "message": map[string]any{
-					"content": []any{map[string]any{"type": "thinking", "thinking": ""}, map[string]any{"type": "text", "text": "Hello"}},
-					"usage":   map[string]int{"input_tokens": 2, "cache_creation_input_tokens": 100, "cache_read_input_tokens": 1000, "output_tokens": 8}}})
-				out.Encode(map[string]any{"type": "result", "subtype": "success", "is_error": false, "result": "Hello", "session_id": "s1",
-					"total_cost_usd": 0.0125, "duration_ms": 900, "num_turns": 1, "usage": map[string]int{"output_tokens": 8}})
-			case "write":
-				out.Encode(map[string]any{"type": "assistant", "parent_tool_use_id": nil, "message": map[string]any{"content": []any{
-					map[string]any{"type": "tool_use", "id": "tu1", "name": "Write", "input": map[string]string{"file_path": "a.txt"}}}}})
-				out.Encode(map[string]any{"type": "control_request", "request_id": "perm-1", "request": map[string]any{
-					"subtype": "can_use_tool", "tool_name": "Write", "input": map[string]string{"file_path": "a.txt"}, "tool_use_id": "tu1",
-					"description": "a.txt", "permission_suggestions": json.RawMessage(os.Getenv("FAKE_SUGGESTIONS"))}})
-			case "hook":
-				out.Encode(map[string]any{"type": "control_request", "request_id": "hook-1", "request": map[string]any{"subtype": "hook_callback"}})
-			case "crash":
-				fmt.Fprintln(os.Stderr, "fatal: out of cheese")
-				os.Exit(2)
-			}
-		}
-	}
 }
 
 type recorder struct {
@@ -146,7 +58,7 @@ func (r *recorder) until(t *testing.T, typ harness.EventType) []harness.Event {
 func fake(t *testing.T, extraEnv ...string) (Harness, string) {
 	t.Helper()
 	log := filepath.Join(t.TempDir(), "fake.log")
-	return Harness{Bin: os.Args[0], Env: append(os.Environ(), append(extraEnv, fakeEnv+"="+log)...), PluginDirs: []string{"/opt/layer8/plugin"}}, log
+	return Harness{Bin: os.Args[0], Env: append(os.Environ(), append(extraEnv, claudetest.LogEnv+"="+log)...), PluginDirs: []string{"/opt/layer8/plugin"}}, log
 }
 
 func logLines(t *testing.T, path string) []string {
@@ -176,7 +88,7 @@ func TestStartArgvAndInitialize(t *testing.T) {
 	rec := newRecorder(nil)
 	p := start(t, h, rec, harness.StartOptions{
 		AddDirs: []string{"/home/a/.layer8/tasks/eng-482"}, Model: "opus", Effort: "high", PermissionMode: "acceptEdits",
-		ResumeID: "5f0c", MCPURL: "http://127.0.0.1:7979/mcp", MCPHeaders: map[string]string{"X-Layer8-Session": "9c41e0aa"},
+		ResumeID: "5f0c", Fork: true, AllowedTools: []string{"ReadMcpResourceTool", "mcp__layer8__do"}, MCPURL: "http://127.0.0.1:7979/mcp", MCPHeaders: map[string]string{"X-Layer8-Session": "9c41e0aa"},
 		PluginDirs: []string{"/tmp/extra"}, AppendSystemPrompt: "You run inside layer8.",
 	})
 	p.Close(time.Second)
@@ -188,7 +100,7 @@ func TestStartArgvAndInitialize(t *testing.T) {
 		"--include-partial-messages", "--permission-prompt-tool=stdio", "--setting-sources=user,project,local",
 		"--plugin-dir", "/opt/layer8/plugin", "--plugin-dir", "/tmp/extra", "--add-dir", "/home/a/.layer8/tasks/eng-482",
 		"--mcp-config", `{"mcpServers":{"layer8":{"type":"http","url":"http://127.0.0.1:7979/mcp","headers":{"X-Layer8-Session":"9c41e0aa"}}}}`,
-		"--allowedTools", "mcp__layer8", "--resume", "5f0c", "--model", "opus", "--effort", "high", "--permission-mode", "acceptEdits"}
+		"--allowedTools", "ReadMcpResourceTool,mcp__layer8__do", "--resume", "5f0c", "--model", "opus", "--effort", "high", "--permission-mode", "acceptEdits", "--fork-session"}
 	if !slices.Equal(argv, want) {
 		t.Fatalf("argv\n got %q\nwant %q", argv, want)
 	}

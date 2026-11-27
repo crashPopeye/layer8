@@ -29,8 +29,10 @@ type StartOptions struct {
 	Effort             string
 	PermissionMode     string
 	ResumeID           string
+	Fork               bool
 	MCPURL             string
 	MCPHeaders         map[string]string
+	AllowedTools       []string
 	PluginDirs         []string
 	AppendSystemPrompt string
 	Env                []string
