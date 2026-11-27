@@ -54,10 +54,12 @@ func build(ctx context.Context, cfg config.Config, db *sql.DB, token, version st
 		Max:       cfg.MaxSessions, MCPURL: cfg.URL() + "/mcp", Token: token, AutoApproveDo: cfg.AutoApproveDo,
 		Terminal: cfg.Apps.Terminal, Publish: hub.Publish,
 	})
-	linearCallback := linear.Register(t, linear.New(cfg.Path("linear.json"), cfg.LinearClientID), cfg.URL()+linearCallbackPath)
+	lc := linear.New(cfg.Path("linear.json"), cfg.LinearClientID)
+	linearCallback := linear.Register(t, lc, cfg.URL()+linearCallbackPath)
 	diff.Register(t)
 	gh := github.Register(t, db, &github.Client{API: "https://api.github.com", HTTP: &http.Client{Timeout: 30 * time.Second}, Token: github.GHToken(cfg.GitHubToken)})
 	go gh.Poll(ctx, 90*time.Second)
+	linear.RegisterTasks(t, lc, ts)
 	wf := workflows.Register(t, db, workflows.Options{Dir: cfg.Path("workflows")})
 	go wf.Watch(ctx, 2*time.Second)
 	return t, server.New(server.Options{

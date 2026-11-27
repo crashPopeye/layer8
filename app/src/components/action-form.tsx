@@ -6,6 +6,7 @@ import { setFocus } from "@/lib/focus";
 import { useClient } from "@/lib/react";
 import { argsFrom, fieldsOf, type Values } from "@/lib/schema";
 import type { Action, Addr } from "@/lib/types";
+import { IssuePicker } from "@/panels/linear";
 
 /** A form for one action's args, generated from its JSON Schema. */
 export function ActionForm({
@@ -116,18 +117,28 @@ function ActionRequest({ req }: { req: Request }) {
   const client = useClient();
   const [target, setTarget] = useState(req.targets[0]);
   const [action, setAction] = useState<Action | null | undefined>(undefined);
+  const [fromLinear, setFromLinear] = useState<"closed" | "open" | null>(null);
+  const [pickError, setPickError] = useState<string | null>(null);
 
   useEffect(() => {
     setAction(undefined);
     client.getNode(target, 0).then(
-      (n) => setAction(n.actions.find((a) => a.name === req.action) ?? null),
+      (n) => {
+        setAction(n.actions.find((a) => a.name === req.action) ?? null);
+        const offered = req.action === "create-task" && n.actions.some((a) => a.name === "create-task-from-linear");
+        setFromLinear(offered ? "closed" : null);
+      },
       () => setAction(null),
     );
   }, [client, target, req.action]);
 
-  async function run(args: Record<string, unknown>) {
-    const [r] = await client.doOps([{ target, action: req.action, args }]);
-    if (!r.ok) return r.message ?? `${req.action} failed`;
+  async function pick(issue: string) {
+    setPickError(await run({ issue }, "create-task-from-linear"));
+  }
+
+  async function run(args: Record<string, unknown>, name = req.action) {
+    const [r] = await client.doOps([{ target, action: name, args }]);
+    if (!r.ok) return r.message ?? `${name} failed`;
     if (r.addr !== target) setFocus(r.addr);
     closeAction();
     return null;
@@ -149,7 +160,18 @@ function ActionRequest({ req }: { req: Request }) {
           {target} offers no {req.action} right now.
         </p>
       )}
-      {action && <ActionForm key={target} action={action} onSubmit={run} />}
+      {action && <ActionForm key={target} action={action} onSubmit={(args) => run(args)} />}
+      {fromLinear && (
+        <details className="text-[12px]" onToggle={(e) => setFromLinear(e.currentTarget.open ? "open" : "closed")}>
+          <summary className="cursor-default text-muted-foreground">From Linear issue</summary>
+          {fromLinear === "open" && (
+            <div className="mt-2 max-h-64 overflow-auto">
+              <IssuePicker onPick={pick} />
+              {pickError && <p className="text-bad">{pickError}</p>}
+            </div>
+          )}
+        </details>
+      )}
     </>
   );
 }

@@ -27,10 +27,12 @@ var operation = regexp.MustCompile(`^(?:query|mutation) (\w+)`)
 
 // fakeLinear is a GraphQL server answering by operation name and recording each call.
 type fakeLinear struct {
-	mu    sync.Mutex
-	auths []string
-	vars  map[string]map[string]any
-	token string
+	mu       sync.Mutex
+	auths    []string
+	vars     map[string]map[string]any
+	calls    map[string]int
+	token    string
+	override map[string]string
 }
 
 func (f *fakeLinear) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -44,19 +46,39 @@ func (f *fakeLinear) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	f.auths = append(f.auths, auth)
 	op := operation.FindStringSubmatch(body.Query)[1]
 	f.vars[op] = body.Variables
+	f.calls[op]++
 	valid := auth == apiKey || (f.token != "" && auth == "Bearer "+f.token)
+	data, ok := f.override[op]
+	if !ok {
+		data, ok = responses[op]
+	}
 	f.mu.Unlock()
 	if !valid {
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte(`{"errors":[{"message":"Authentication required, not authenticated"}]}`))
 		return
 	}
-	data, ok := responses[op]
 	if !ok {
 		http.Error(w, "unknown operation "+op, http.StatusBadRequest)
 		return
 	}
 	w.Write([]byte(`{"data":` + data + `}`))
+}
+
+func newFake() *fakeLinear {
+	return &fakeLinear{vars: map[string]map[string]any{}, calls: map[string]int{}, override: map[string]string{}}
+}
+
+func (f *fakeLinear) answer(op, data string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.override[op] = data
+}
+
+func (f *fakeLinear) count(op string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.calls[op]
 }
 
 func (f *fakeLinear) lastAuth() string {
@@ -92,7 +114,7 @@ func setup(t *testing.T, clientID string) (*tree.Tree, *linear.Client, *fakeLine
 	t.Cleanup(func() { db.Close() })
 	tr := tree.New(db)
 	tr.Register(tree.Kind{Name: "app", Get: func(context.Context, tree.Addr) (tree.Node, error) { return tree.Node{Title: "layer8"}, nil }})
-	fake := &fakeLinear{vars: map[string]map[string]any{}}
+	fake := newFake()
 	api := httptest.NewServer(fake)
 	t.Cleanup(api.Close)
 	c := linear.New(filepath.Join(t.TempDir(), "linear.json"), clientID)

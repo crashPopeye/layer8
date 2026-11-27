@@ -130,6 +130,16 @@ func (t *Tree) Extend(kind string, actions ...Action) {
 	k.Actions = append(k.Actions, actions...)
 }
 
+// Wrap replaces a registered action with what wrap returns for it.
+func (t *Tree) Wrap(kind, action string, wrap func(Action) Action) {
+	k := t.kind(kind)
+	i := slices.IndexFunc(k.Actions, func(a Action) bool { return a.Name == action })
+	if i < 0 {
+		panic("tree: unknown action: " + kind + " " + action)
+	}
+	k.Actions[i] = wrap(k.Actions[i])
+}
+
 // AddChildren appends a source of children to a registered kind.
 func (t *Tree) AddChildren(kind string, children func(ctx context.Context, addr Addr) ([]Summary, error)) {
 	k := t.kind(kind)
