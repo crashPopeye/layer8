@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -26,10 +27,17 @@ import (
 	"github.com/crashPopeye/layer8/internal/store"
 	"github.com/crashPopeye/layer8/internal/tasks"
 	"github.com/crashPopeye/layer8/internal/tree"
+	"github.com/crashPopeye/layer8/internal/workflows"
+	"github.com/crashPopeye/layer8/plugin"
 )
 
-// Build assembles the tree, its kinds and the HTTP handler, and watches artifact folders until ctx ends.
+// Build assembles the tree, its kinds and the HTTP handler, and watches artifact and workflow folders until ctx ends.
 func Build(ctx context.Context, cfg config.Config, db *sql.DB, token, version string) http.Handler {
+	_, h := build(ctx, cfg, db, token, version)
+	return h
+}
+
+func build(ctx context.Context, cfg config.Config, db *sql.DB, token, version string) (*tree.Tree, http.Handler) {
 	t := tree.New(db)
 	hub := server.NewHub()
 	t.OnChange = func(addrs []tree.Addr) { hub.Publish("node", server.NodeChange{Addrs: addrs}) }
@@ -45,7 +53,9 @@ func Build(ctx context.Context, cfg config.Config, db *sql.DB, token, version st
 	diff.Register(t)
 	gh := github.Register(t, db, &github.Client{API: "https://api.github.com", HTTP: &http.Client{Timeout: 30 * time.Second}, Token: github.GHToken(cfg.GitHubToken)})
 	go gh.Poll(ctx, 90*time.Second)
-	return server.New(server.Options{
+	wf := workflows.Register(t, db, workflows.Options{Dir: cfg.Path("workflows")})
+	go wf.Watch(ctx, 2*time.Second)
+	return t, server.New(server.Options{
 		Tree: t, Hub: hub, Token: token, Version: version, MCP: mcp.New(t, hub, version),
 		Routes: map[string]http.Handler{
 			"GET /api/artifact":              http.HandlerFunc(ts.ServeArtifact),
@@ -65,6 +75,17 @@ func Serve(cfg config.Config, version string) error {
 	token, err := cfg.Token()
 	if err != nil {
 		return err
+	}
+	if cfg.PluginDir == "" {
+		cfg.PluginDir = cfg.Path("plugin")
+		if err := plugin.Install(cfg.PluginDir); err != nil {
+			return err
+		}
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		if err := plugin.MirrorCodex(os.DirFS(cfg.PluginDir), filepath.Join(home, ".agents", "skills")); err != nil {
+			slog.Warn("codex skills not installed", "err", err)
+		}
 	}
 	db, err := store.Open(cfg.Path("layer8.db"))
 	if err != nil {

@@ -86,6 +86,17 @@ var migrations = []string{
 		created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 	);
 	CREATE INDEX approvals_session ON approvals (session_id, status);`,
+	`CREATE TABLE workflow_runs (
+		task_id INTEGER PRIMARY KEY REFERENCES tasks(id),
+		workflow TEXT NOT NULL,
+		steps TEXT NOT NULL,
+		step INTEGER NOT NULL DEFAULT 0,
+		status TEXT NOT NULL CHECK (status IN ('running', 'waiting', 'done', 'stopped')),
+		autopilot INTEGER NOT NULL DEFAULT 0,
+		entries TEXT NOT NULL DEFAULT '[]',
+		created_by TEXT NOT NULL,
+		updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+	);`,
 }
 
 // Open opens the database at path and applies pending migrations.

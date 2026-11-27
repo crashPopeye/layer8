@@ -23,6 +23,8 @@ type Config struct {
 	GitHubToken string `json:"githubToken"`
 	// AutoApproveDo lets sessions call the layer8 do tool without asking the user.
 	AutoApproveDo bool `json:"autoApproveDo"`
+	// PluginDir is the layer8 Claude Code plugin sessions load; empty installs the bundled one under Home.
+	PluginDir string `json:"pluginDir"`
 }
 
 // Apps names the macOS applications a task's "open" action uses.

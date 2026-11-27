@@ -1,0 +1,6 @@
+description: Implement a small change and open its pull request
+steps:
+  - name: implement
+    skill: layer8:implement
+  - name: describe-pr
+    skill: layer8:describe-pr
