@@ -30,17 +30,18 @@ import (
 	"github.com/crashPopeye/layer8/internal/tasks"
 	"github.com/crashPopeye/layer8/internal/tree"
 	"github.com/crashPopeye/layer8/internal/ui"
+	"github.com/crashPopeye/layer8/internal/update"
 	"github.com/crashPopeye/layer8/internal/workflows"
 	"github.com/crashPopeye/layer8/plugin"
 )
 
 // Build assembles the tree, its kinds and the HTTP handler, and watches artifact, workflow and plugin folders until ctx ends.
 func Build(ctx context.Context, cfg config.Config, db *sql.DB, token, version string) http.Handler {
-	_, h := build(ctx, cfg, db, token, version)
+	_, h := build(ctx, cfg, db, token, version, func() {})
 	return h
 }
 
-func build(ctx context.Context, cfg config.Config, db *sql.DB, token, version string) (*tree.Tree, http.Handler) {
+func build(ctx context.Context, cfg config.Config, db *sql.DB, token, version string, stop func()) (*tree.Tree, http.Handler) {
 	t := tree.New(db)
 	hub := server.NewHub()
 	t.OnChange = func(addrs []tree.Addr) { hub.Publish("node", server.NodeChange{Addrs: addrs}) }
@@ -60,13 +61,16 @@ func build(ctx context.Context, cfg config.Config, db *sql.DB, token, version st
 	linearCallback := linear.Register(t, lc, cfg.URL()+linearCallbackPath)
 	diff.Register(t)
 	comments.Register(t, db)
-	gh := github.Register(t, db, &github.Client{API: "https://api.github.com", HTTP: &http.Client{Timeout: 30 * time.Second}, Token: github.GHToken(cfg.GitHubToken)})
+	ghToken := github.GHToken(cfg.GitHubToken)
+	gh := github.Register(t, db, &github.Client{API: cfg.GitHubAPI, HTTP: &http.Client{Timeout: 30 * time.Second}, Token: ghToken})
 	go gh.Poll(ctx, 90*time.Second)
 	linear.RegisterTasks(t, lc, ts)
 	wf := workflows.Register(t, db, workflows.Options{Dir: cfg.Path("workflows")})
 	go wf.Watch(ctx, 2*time.Second)
 	uis := ui.Register(t, ui.Options{Home: cfg.Home, Publish: hub.Publish})
 	go uis.Watch(ctx, time.Second)
+	up := &update.Proxy{API: cfg.GitHubAPI, Repo: cfg.UpdateRepo, Base: cfg.URL(), HTTP: &http.Client{}, Token: ghToken}
+	restart := &restarter{busy: ss.Busy, stop: stop, every: 5 * time.Second}
 	return t, server.New(server.Options{
 		Tree: t, Hub: hub, Token: token, Version: version, MCP: mcp.New(t, hub, version),
 		Routes: map[string]http.Handler{
@@ -77,6 +81,9 @@ func build(ctx context.Context, cfg config.Config, db *sql.DB, token, version st
 			"GET /api/sessions/{id8}/events": http.HandlerFunc(ss.ServeEvents),
 			"GET /api/capabilities":          http.HandlerFunc(ss.ServeCapabilities),
 			"GET /api/plugins/{file}":        http.HandlerFunc(uis.ServePlugin),
+			"GET /api/update/latest.json":    http.HandlerFunc(up.ServeManifest),
+			"GET /api/update/asset/{id}":     http.HandlerFunc(up.ServeAsset),
+			"POST /api/restart":              restart,
 		},
 		Public: map[string]http.Handler{"GET " + linearCallbackPath: linearCallback},
 	})
@@ -112,8 +119,11 @@ func Serve(cfg config.Config, version string) error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	ctx, restart := context.WithCancel(ctx)
+	defer restart()
+	_, handler := build(ctx, cfg, db, token, version, restart)
 	srv := &http.Server{
-		Handler:           Build(ctx, cfg, db, token, version),
+		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 		BaseContext:       func(net.Listener) context.Context { return ctx },
 	}

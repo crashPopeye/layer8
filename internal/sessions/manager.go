@@ -114,6 +114,18 @@ func (m *Manager) admit(r *run) {
 
 func (m *Manager) live() int { return len(m.runs) - len(m.queue) }
 
+// Busy reports whether any session is queued, starting, running or waiting for an approval.
+func (m *Manager) Busy() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, r := range m.runs {
+		if r.state() != "idle" {
+			return true
+		}
+	}
+	return false
+}
+
 // next starts queued runs while slots are free.
 func (m *Manager) next() {
 	for len(m.queue) > 0 && m.live() < m.o.Max {
