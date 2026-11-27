@@ -126,7 +126,7 @@ type proc struct {
 	cmd     *exec.Cmd
 	stdin   io.WriteCloser
 	sink    harness.Sink
-	stderr  tail
+	stderr  harness.Tail
 	wmu     sync.Mutex
 	mu      sync.Mutex
 	pending map[string]chan reply
@@ -421,25 +421,4 @@ func alwaysRules(req harness.PermissionRequest) []any {
 			"rules": []any{map[string]any{"toolName": req.Tool}}}}
 	}
 	return rules
-}
-
-type tail struct {
-	mu  sync.Mutex
-	buf []byte
-}
-
-func (t *tail) Write(b []byte) (int, error) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.buf = append(t.buf, b...)
-	if over := len(t.buf) - 4096; over > 0 {
-		t.buf = t.buf[over:]
-	}
-	return len(b), nil
-}
-
-func (t *tail) String() string {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return string(t.buf)
 }
