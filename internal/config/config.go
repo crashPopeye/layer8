@@ -17,8 +17,6 @@ type Config struct {
 	Addr        string `json:"addr"`
 	MaxSessions int    `json:"maxSessions"`
 	Apps        Apps   `json:"apps"`
-	// LinearClientID is the client id of the user's own Linear OAuth app; empty means API key only.
-	LinearClientID string `json:"linearClientId"`
 	// GitHubToken is used instead of `gh auth token` when set.
 	GitHubToken string `json:"githubToken"`
 	// AutoApproveDo lets sessions call the layer8 do tool without asking the user.

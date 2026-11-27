@@ -21,7 +21,6 @@ import (
 	"github.com/crashPopeye/layer8/internal/harness"
 	"github.com/crashPopeye/layer8/internal/harness/claude"
 	"github.com/crashPopeye/layer8/internal/harness/codex"
-	"github.com/crashPopeye/layer8/internal/linear"
 	"github.com/crashPopeye/layer8/internal/mcp"
 	"github.com/crashPopeye/layer8/internal/projects"
 	"github.com/crashPopeye/layer8/internal/server"
@@ -57,14 +56,11 @@ func build(ctx context.Context, cfg config.Config, db *sql.DB, token, version st
 		Max:       cfg.MaxSessions, MCPURL: cfg.URL() + "/mcp", Token: token, AutoApproveDo: cfg.AutoApproveDo,
 		Terminal: cfg.Apps.Terminal, Publish: hub.Publish,
 	})
-	lc := linear.New(cfg.Path("linear.json"), cfg.LinearClientID)
-	linearCallback := linear.Register(t, lc, cfg.URL()+linearCallbackPath)
 	diff.Register(t)
 	comments.Register(t, db)
 	ghToken := github.GHToken(cfg.GitHubToken)
 	gh := github.Register(t, db, &github.Client{API: cfg.GitHubAPI, HTTP: &http.Client{Timeout: 30 * time.Second}, Token: ghToken})
 	go gh.Poll(ctx, 90*time.Second)
-	linear.RegisterTasks(t, lc, ts)
 	wf := workflows.Register(t, db, workflows.Options{Dir: cfg.Path("workflows")})
 	go wf.Watch(ctx, 2*time.Second)
 	uis := ui.Register(t, ui.Options{Home: cfg.Home, Publish: hub.Publish})
@@ -85,11 +81,8 @@ func build(ctx context.Context, cfg config.Config, db *sql.DB, token, version st
 			"GET /api/update/asset/{id}":     http.HandlerFunc(up.ServeAsset),
 			"POST /api/restart":              restart,
 		},
-		Public: map[string]http.Handler{"GET " + linearCallbackPath: linearCallback},
 	})
 }
-
-const linearCallbackPath = "/api/linear/callback"
 
 // Serve runs the daemon until SIGINT or SIGTERM.
 func Serve(cfg config.Config, version string) error {

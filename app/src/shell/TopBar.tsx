@@ -11,8 +11,6 @@ import { openUrl } from "@/lib/tauri";
 import { resolveMode, usePrefersDark, type Mode } from "@/lib/theme";
 import type { Addr } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { linkOf, pillOf, rootOf } from "@/panels/linear/model";
-import { toneText } from "@/panels/pr/model";
 import { togglePalette } from "./Palette";
 import { WorkflowControl } from "./Workflow";
 
@@ -33,20 +31,25 @@ function useCrumbs(addr: string): Crumb[] {
   return trail?.addr === addr ? trail.crumbs : crumbs(addr).map((title) => ({ addr, title }));
 }
 
-/** The Linear issue of the task at addr, or of its root task, as a pill that opens it in Linear. */
-function LinearPill({ addr }: { addr: Addr }) {
-  const own = linkOf(useNode(addr, 0).node);
-  const root = linkOf(useNode(rootOf(addr), 0).node);
+/** The task's `link` field, set with the task's set-link action. */
+interface Link {
+  url: string;
+  label: string;
+}
+
+/** The link of the task at addr, or of its root task, as a pill that opens it. */
+function LinkPill({ addr }: { addr: Addr }) {
+  const own = useNode(addr, 0).node?.fields?.link as Link | null | undefined;
+  const root = useNode(addr.split("/")[0], 0).node?.fields?.link as Link | null | undefined;
   const link = own ?? root;
   if (!link) return null;
-  const pill = pillOf(link);
   return (
     <button
-      className={cn("rounded-full border px-2 py-0.5 font-mono text-[11px] hover:bg-muted", toneText[pill.tone])}
-      title={`${link.title} — open in Linear`}
+      className="max-w-48 truncate rounded-full border px-2 py-0.5 font-mono text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
+      title={`Open ${link.url}`}
       onClick={() => openUrl(link.url)}
     >
-      {pill.text}
+      {link.label}
     </button>
   );
 }
@@ -82,7 +85,7 @@ export function TopBar() {
           </Fragment>
         ))}
       </nav>
-      {focus.startsWith("task:") && <LinearPill key={focus} addr={focus} />}
+      {focus.startsWith("task:") && <LinkPill key={focus} addr={focus} />}
       <div data-tauri-drag-region className="flex-1 self-stretch" />
       <WorkflowControl />
       {panels.map(({ id, title, icon: Icon }) => (
