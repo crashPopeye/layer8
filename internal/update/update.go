@@ -1,4 +1,4 @@
-// Package update serves the app's update feed from the latest GitHub release of a private repository through the daemon.
+// Package update serves the app's update feed from the latest GitHub release of UpdateRepo through the daemon.
 package update
 
 import (
@@ -15,10 +15,11 @@ import (
 
 // Proxy serves the release's latest.json with its asset URLs pointing back at the daemon, and streams those assets.
 type Proxy struct {
-	API   string
-	Repo  string
-	Base  string
-	HTTP  *http.Client
+	API  string
+	Repo string
+	Base string
+	HTTP *http.Client
+	// Token authenticates release requests when it succeeds; on error the request goes out anonymously.
 	Token func(ctx context.Context) (string, error)
 
 	mu      sync.Mutex
@@ -131,15 +132,13 @@ func (p *Proxy) download(ctx context.Context, id int64) (*http.Response, error) 
 }
 
 func (p *Proxy) get(ctx context.Context, path, accept string) (*http.Response, error) {
-	token, err := p.Token(ctx)
-	if err != nil {
-		return nil, err
-	}
 	req, err := http.NewRequestWithContext(ctx, "GET", strings.TrimSuffix(p.API, "/")+path, nil)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
+	if token, err := p.Token(ctx); err == nil {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
 	req.Header.Set("Accept", accept)
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 	res, err := p.HTTP.Do(req)
