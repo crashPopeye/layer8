@@ -44,8 +44,12 @@ func build(ctx context.Context, cfg config.Config, db *sql.DB, token, version st
 	projects.Register(t, db, version)
 	ts := tasks.Register(t, db, tasks.Options{Home: cfg.Home, Apps: cfg.Apps})
 	go ts.Watch(ctx, 2*time.Second)
+	var plugins []string
+	if cfg.PluginDir != "" {
+		plugins = []string{cfg.PluginDir}
+	}
 	ss := sessions.Register(t, db, ts, sessions.Options{
-		Harnesses: map[string]harness.Harness{"claude": claude.Harness{}},
+		Harnesses: map[string]harness.Harness{"claude": claude.Harness{PluginDirs: plugins}},
 		Max:       cfg.MaxSessions, MCPURL: cfg.URL() + "/mcp", Token: token, AutoApproveDo: cfg.AutoApproveDo,
 		Terminal: cfg.Apps.Terminal, Publish: hub.Publish,
 	})

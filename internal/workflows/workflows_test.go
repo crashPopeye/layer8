@@ -8,11 +8,15 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/crashPopeye/layer8/internal/config"
 	"github.com/crashPopeye/layer8/internal/gitx"
+	"github.com/crashPopeye/layer8/internal/harness"
 	"github.com/crashPopeye/layer8/internal/projects"
+	"github.com/crashPopeye/layer8/internal/sessions"
 	"github.com/crashPopeye/layer8/internal/store"
 	"github.com/crashPopeye/layer8/internal/tasks"
 	"github.com/crashPopeye/layer8/internal/tree"
@@ -58,6 +62,12 @@ func git(t *testing.T, dir string, args ...string) {
 // newEnv builds a tree with project api, task feat, and a fake start-session that records where it ran.
 func newEnv(t *testing.T) *env {
 	t.Helper()
+	return build(t, false)
+}
+
+// build is newEnv, with the real session manager over an idle harness instead of the fake start-session when real is set.
+func build(t *testing.T, real bool) *env {
+	t.Helper()
 	root, _ := filepath.EvalSymlinks(t.TempDir())
 	repo := filepath.Join(root, "api")
 	git(t, root, "init", "-q", "-b", "main", repo)
@@ -70,7 +80,20 @@ func newEnv(t *testing.T) *env {
 	e := &env{t: t, tree: tree.New(db), dir: filepath.Join(root, "workflows"), sessions: map[string]tree.Addr{}}
 	os.Mkdir(e.dir, 0o755)
 	projects.Register(e.tree, db, "test")
-	tasks.Register(e.tree, db, tasks.Options{Home: filepath.Join(root, "home"), Apps: config.Apps{}})
+	ts := tasks.Register(e.tree, db, tasks.Options{Home: filepath.Join(root, "home"), Apps: config.Apps{}})
+	if real {
+		sessions.Register(e.tree, db, ts, sessions.Options{Harnesses: map[string]harness.Harness{"claude": idleHarness{}}})
+	} else {
+		e.fakeSessions()
+	}
+	e.svc = workflows.Register(e.tree, db, workflows.Options{Dir: e.dir})
+	e.ok("user", "app", "add-project", `{"path":"`+repo+`"}`)
+	e.ok("user", "project:api", "create-task", `{"title":"feat"}`)
+	return e
+}
+
+// fakeSessions adds a start-session that only records where it ran, and a here that knows its sessions.
+func (e *env) fakeSessions() {
 	e.tree.Extend("task", tree.Action{Name: "start-session", Help: "fake",
 		Args: json.RawMessage(`{"type":"object","properties":{"prompt":{"type":"string"},"skill":{"type":"string"},
 			"harness":{"enum":["claude","codex"]},"model":{"type":"string"},"effort":{"type":"string"},"title":{"type":"string"}}}`),
@@ -83,10 +106,6 @@ func newEnv(t *testing.T) *env {
 			return tree.Result{Addr: tree.Addr("session:" + id8)}, nil
 		}})
 	e.tree.Here = func(_ context.Context, by tree.Actor) (tree.Addr, error) { return e.sessions[by.ID], nil }
-	e.svc = workflows.Register(e.tree, db, workflows.Options{Dir: e.dir})
-	e.ok("user", "app", "add-project", `{"path":"`+repo+`"}`)
-	e.ok("user", "project:api", "create-task", `{"title":"feat"}`)
-	return e
 }
 
 func (e *env) do(by string, target tree.Addr, action, args string) tree.Result {
@@ -230,5 +249,47 @@ func TestFanoutFollowsTheStack(t *testing.T) {
 	w, _ := e.workflow("task:feat")
 	if w["status"] != "waiting" || w["next"] != "describe-pr" {
 		t.Fatalf("after the last sub-task: %v", w)
+	}
+}
+
+type idleHarness struct{}
+
+func (idleHarness) Start(context.Context, harness.StartOptions, harness.Sink) (harness.Proc, error) {
+	return &idleProc{done: make(chan struct{})}, nil
+}
+
+func (idleHarness) Probe(context.Context, string) (harness.Capabilities, error) {
+	return harness.Capabilities{}, nil
+}
+
+type idleProc struct {
+	done chan struct{}
+	once sync.Once
+}
+
+func (p *idleProc) Send(harness.UserMessage) error  { return nil }
+func (p *idleProc) Interrupt(context.Context) error { return nil }
+func (p *idleProc) Close(time.Duration)             { p.once.Do(func() { close(p.done) }) }
+func (p *idleProc) Done() <-chan struct{}           { return p.done }
+
+func TestWithTheSessionManager(t *testing.T) {
+	e := build(t, true)
+	e.ok("user", "task:feat", "run-workflow", `{"workflow":"quick-fix"}`)
+	task, err := e.tree.Get(t.Context(), tree.Actor{Kind: "user"}, "task:feat", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	i := slices.IndexFunc(task.Children, func(c tree.Summary) bool { return c.Kind == "session" })
+	if i < 0 || task.Children[i].Title != "implement" {
+		t.Fatalf("no implement session among %+v", task.Children)
+	}
+	session, err := e.tree.Get(t.Context(), tree.Actor{Kind: "user"}, task.Children[i].Addr, 0)
+	if err != nil || session.Fields["skill"] != "layer8:implement" {
+		t.Fatalf("session = %+v, %v", session.Fields, err)
+	}
+
+	e.ok(string(session.Addr), "here", "advance", `{}`)
+	if w, _ := e.workflow("task:feat"); w["status"] != "waiting" || w["next"] != "describe-pr" {
+		t.Fatalf("after advance from %s: %v", session.Addr, w)
 	}
 }

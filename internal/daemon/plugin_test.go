@@ -16,8 +16,7 @@ import (
 
 // pending are actions the skills use that other work items add to the tree.
 var pending = map[string]string{
-	"start-session": "WI-04b",
-	"open-panel":    "WI-10",
+	"open-panel": "WI-10",
 }
 
 var actionRef = regexp.MustCompile(`"action"\s*:\s*"([a-z0-9-]+)"`)
