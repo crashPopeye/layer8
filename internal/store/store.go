@@ -97,6 +97,24 @@ var migrations = []string{
 		created_by TEXT NOT NULL,
 		updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 	);`,
+	`CREATE TABLE comments (
+		id8 TEXT PRIMARY KEY,
+		task_id INTEGER NOT NULL REFERENCES tasks(id),
+		target TEXT NOT NULL CHECK (target IN ('artifact', 'diff')),
+		path TEXT NOT NULL,
+		line INTEGER NOT NULL DEFAULT 0,
+		line_end INTEGER NOT NULL DEFAULT 0,
+		side TEXT NOT NULL DEFAULT '',
+		quote TEXT NOT NULL DEFAULT '',
+		body TEXT NOT NULL,
+		status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'sent', 'resolved')),
+		reply TEXT NOT NULL DEFAULT '',
+		author TEXT NOT NULL,
+		resolved_by TEXT NOT NULL DEFAULT '',
+		sent_to TEXT NOT NULL DEFAULT '',
+		created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+	);
+	CREATE INDEX comments_task ON comments (task_id, target, path);`,
 }
 
 // Open opens the database at path and applies pending migrations.

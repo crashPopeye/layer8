@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/crashPopeye/layer8/internal/comments"
 	"github.com/crashPopeye/layer8/internal/config"
 	"github.com/crashPopeye/layer8/internal/diff"
 	"github.com/crashPopeye/layer8/internal/github"
@@ -58,6 +59,7 @@ func build(ctx context.Context, cfg config.Config, db *sql.DB, token, version st
 	lc := linear.New(cfg.Path("linear.json"), cfg.LinearClientID)
 	linearCallback := linear.Register(t, lc, cfg.URL()+linearCallbackPath)
 	diff.Register(t)
+	comments.Register(t, db)
 	gh := github.Register(t, db, &github.Client{API: "https://api.github.com", HTTP: &http.Client{Timeout: 30 * time.Second}, Token: github.GHToken(cfg.GitHubToken)})
 	go gh.Poll(ctx, 90*time.Second)
 	linear.RegisterTasks(t, lc, ts)
