@@ -60,5 +60,7 @@ export interface Client {
   label: string;
   getNode(addr: Addr, depth?: Depth): Promise<Node>;
   doOps(ops: Op[]): Promise<Result[]>;
+  /** Reads a JSON endpoint of the daemon such as `/api/diff?task=…`. */
+  getJSON<T>(path: string): Promise<T>;
   subscribe(listener: (e: L8Event) => void): () => void;
 }

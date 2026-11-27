@@ -34,6 +34,7 @@ export function httpClient({ url, token }: DaemonInfo): Client {
     label: new URL(base).host,
     getNode: (addr, depth = 1) =>
       call(`/api/node?addr=${encodeURIComponent(addr)}&depth=${depth}`),
+    getJSON: (path) => call(path),
     doOps: async (ops: Op[]) =>
       (await call<{ results: Result[] }>("/api/do", { method: "POST", body: JSON.stringify({ ops }) })).results,
     subscribe(listener) {

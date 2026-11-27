@@ -37,10 +37,23 @@ async fn pick_folder(app: tauri::AppHandle) -> Option<String> {
         .map(|p| p.to_string())
 }
 
+/// Opens an https URL in the default browser.
+#[tauri::command]
+fn open_url(url: String) -> Result<(), String> {
+    if !url.starts_with("https://") {
+        return Err(format!("refusing to open {url}"));
+    }
+    Command::new("open")
+        .arg(&url)
+        .status()
+        .map_err(|e| format!("open: {e}"))
+        .map(|_| ())
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![daemon_info, pick_folder])
+        .invoke_handler(tauri::generate_handler![daemon_info, pick_folder, open_url])
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();

@@ -49,6 +49,9 @@ export function mockClient(): Client {
     mode: "mock",
     label: "mock",
     getNode: async (addr) => get(addr),
+    getJSON: async (path) => {
+      throw new Error(`${path.split("?")[0]} needs a running layer8d`);
+    },
     async doOps(ops) {
       const results = ops.map(run);
       results.filter((r) => r.ok).forEach((r) => emit(["app", r.addr]));

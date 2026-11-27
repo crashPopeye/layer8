@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"slices"
 	"strings"
 )
@@ -144,6 +145,28 @@ func (t *Tree) AddChildren(kind string, children func(ctx context.Context, addr 
 		}
 		rest, err := children(ctx, addr)
 		return append(first, rest...), err
+	}
+}
+
+// AddFields merges the fields returned by fields into every node of a registered kind.
+func (t *Tree) AddFields(kind string, fields func(ctx context.Context, n Node) (map[string]any, error)) {
+	k := t.kind(kind)
+	get := k.Get
+	k.Get = func(ctx context.Context, addr Addr) (Node, error) {
+		n, err := get(ctx, addr)
+		if err != nil {
+			return n, err
+		}
+		n.Addr = addr
+		extra, err := fields(ctx, n)
+		if err != nil {
+			return Node{}, err
+		}
+		if n.Fields == nil {
+			n.Fields = map[string]any{}
+		}
+		maps.Copy(n.Fields, extra)
+		return n, nil
 	}
 }
 

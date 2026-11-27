@@ -179,6 +179,20 @@ func TestExtendAndAddChildren(t *testing.T) {
 	}
 }
 
+func TestAddFields(t *testing.T) {
+	tr, _, _, _ := newTree(t)
+	tr.AddFields("lamp", func(ctx context.Context, n tree.Node) (map[string]any, error) {
+		return map[string]any{"watts": len(n.Addr.Path())}, nil
+	})
+	desk, err := tr.Get(context.Background(), tree.Actor{Kind: "user"}, "lamp:desk", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if desk.Fields["watts"] != 4 || desk.Fields["on"] != false || len(desk.Actions) != 1 {
+		t.Fatalf("desk = %+v", desk)
+	}
+}
+
 func TestActorString(t *testing.T) {
 	for _, s := range []string{"user", "cli", "session:9c41e0aa", "plugin:prs"} {
 		if got := tree.ParseActor(s).String(); got != s {
