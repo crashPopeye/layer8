@@ -54,3 +54,19 @@ it("flattens to rows, honouring collapsed nodes and hiding archived tasks unless
     "web-app",
   ]);
 });
+
+it("lists only projects among the app's children", async () => {
+  const app = {
+    addr: "app",
+    kind: "app",
+    title: "layer8",
+    actions: [],
+    children: [
+      { addr: "project:api", kind: "project", title: "api", children: [] },
+      { addr: "linear", kind: "linear", title: "Linear" },
+      { addr: "workflow:feature", kind: "workflow", title: "feature" },
+    ],
+  };
+  const tree = await loadTree(async () => app);
+  expect(tree.map((i) => i.addr)).toEqual(["project:api"]);
+});

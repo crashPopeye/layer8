@@ -14,7 +14,7 @@ type Get = (addr: Addr, depth: Depth) => Promise<Node>;
 /** Reads every project with its tasks and sub-tasks, two levels per request. */
 export async function loadTree(get: Get): Promise<TreeItem[]> {
   const app = await get("app", 2);
-  return Promise.all(app.children.map((p) => expand(p, 1, get)));
+  return Promise.all(app.children.filter((c) => c.kind === "project").map((p) => expand(p, 1, get)));
 }
 
 async function expand(s: Summary, known: number, get: Get): Promise<TreeItem> {
