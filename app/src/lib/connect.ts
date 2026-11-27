@@ -1,6 +1,6 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { httpClient, type DaemonInfo } from "./client";
-import { mockClient } from "./mock";
+import { demoSeed, mockClient } from "./mock";
 import type { Client } from "./types";
 
 /** Finds the daemon's url and token: from the Tauri shell, the page query, or Vite env. */
@@ -17,8 +17,8 @@ async function reachable(url: string): Promise<boolean> {
   return fetch(new URL("/api/version", url)).then((r) => r.ok, () => false);
 }
 
-/** Returns a daemon Client when one answers, and the in-memory mock otherwise. */
+/** Returns a daemon Client when one answers, and the in-memory mock with a demo tree otherwise. */
 export async function connect(): Promise<Client> {
   const info = await daemonInfo();
-  return info && (await reachable(info.url)) ? httpClient(info) : mockClient();
+  return info && (await reachable(info.url)) ? httpClient(info) : mockClient(demoSeed);
 }

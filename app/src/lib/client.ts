@@ -37,6 +37,11 @@ export function httpClient({ url, token }: DaemonInfo): Client {
     getJSON: (path) => call(path),
     doOps: async (ops: Op[]) =>
       (await call<{ results: Result[] }>("/api/do", { method: "POST", body: JSON.stringify({ ops }) })).results,
+    async raw(path) {
+      const res = await fetch(base + path, { headers: { Authorization: headers.Authorization } });
+      if (!res.ok) throw new Error((await res.text()).trim() || `${res.status} ${res.statusText}`);
+      return res.blob();
+    },
     subscribe(listener) {
       listeners.add(listener);
       if (!source) open();

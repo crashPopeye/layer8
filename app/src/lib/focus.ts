@@ -32,3 +32,10 @@ export function crumbs(addr: Addr): string[] {
   const i = addr.indexOf(":");
   return i < 0 ? [] : addr.slice(i + 1).split("/").filter(Boolean);
 }
+
+/** Returns the task a node belongs to: the task itself, or the root task of an artifact. */
+export function taskOf(addr: Addr): Addr | null {
+  if (addr.startsWith("task:")) return addr;
+  if (addr.startsWith("artifact:")) return `task:${addr.slice("artifact:".length).split("/")[0]}`;
+  return null;
+}
