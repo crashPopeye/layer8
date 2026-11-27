@@ -1,6 +1,7 @@
 import { Play } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/select";
 import { useFocus } from "@/lib/focus";
 import { useClient, useNode } from "@/lib/react";
 import type { Addr, Op } from "@/lib/types";
@@ -51,21 +52,14 @@ function TaskWorkflow({ addr }: { addr: Addr }) {
       )}
       {can("run-workflow") && (
         <>
-          <select
+          <Select
             aria-label="Run workflow"
-            className="h-7 rounded-md border bg-transparent px-1.5 text-muted-foreground"
+            className="h-7 w-auto px-2 text-[12px]"
             value=""
-            onChange={(e) =>
-              e.target.value && run({ target: addr, action: "run-workflow", args: { workflow: e.target.value, autopilot } })
-            }
-          >
-            <option value="">Workflow…</option>
-            {workflows.map((w) => (
-              <option key={w.addr} value={w.title}>
-                {w.title}
-              </option>
-            ))}
-          </select>
+            placeholder="Workflow…"
+            options={workflows.map((w) => w.title)}
+            onValueChange={(workflow) => run({ target: addr, action: "run-workflow", args: { workflow, autopilot } })}
+          />
           <Button
             variant={autopilot ? "secondary" : "ghost"}
             size="icon-sm"

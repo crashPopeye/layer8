@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { reduceAll } from "@/panels/session/model";
+import { isQueued, reduceAll } from "@/panels/session/model";
 import { mockClient } from "./mock";
 import type { SessionEvent } from "./types";
 
@@ -23,7 +23,7 @@ it("plays a turn that streams, nests a subagent, edits and waits for approval, t
 
   const waiting = await client.getNode(r.addr, 0);
   expect(waiting.fields).toMatchObject({ status: "waiting", model: "opus", approvals: [{ id: 1, tool: "Bash" }] });
-  expect(waiting.actions.map((a) => a.name)).toEqual(["say", "interrupt", "allow", "deny", "close", "set", "fork"]);
+  expect(waiting.actions.map((a) => a.name)).toEqual(["say", "send-now", "interrupt", "allow", "deny", "close", "set", "fork"]);
   expect(live.some((e) => e.partial)).toBe(true);
   const t = reduceAll(live);
   expect(t.items.map((i) => (i.kind === "tool" ? `${i.name}:${i.children.length}` : i.kind))).toEqual([
@@ -57,7 +57,25 @@ it("queues a message sent mid-turn and plays it after the current one", async ()
   await client.doOps([{ target: r.addr, action: "interrupt" }]);
   const { events } = await client.getJSON<{ events: SessionEvent[] }>(`/api/sessions/${r.addr.slice(8)}/events`);
   const t = reduceAll(events);
-  expect(t.users).toBe(2);
-  expect(t.results).toBe(1);
+  expect(t.items.filter((i) => isQueued(i, "running"))).toEqual([]);
+  expect(t.items.filter((i) => i.kind === "result")).toHaveLength(1);
   expect((await client.getNode(r.addr, 0)).fields?.status).toBe("running");
+});
+
+it("sends a queued message now: the running turn stops and that message goes next", async () => {
+  const client = mockClient(seed);
+  const [r] = await client.doOps([{ target: "task:t", action: "start-session", args: { prompt: "one" } }]);
+  for (const text of ["two", "three"]) await client.doOps([{ target: r.addr, action: "say", args: { text } }]);
+  const users = async () =>
+    reduceAll((await client.getJSON<{ events: SessionEvent[] }>(`/api/sessions/${r.addr.slice(8)}/events`)).events).items.flatMap((i) =>
+      i.kind === "user" ? [i] : [],
+    );
+  const three = (await users())[2];
+  const [sent] = await client.doOps([{ target: r.addr, action: "send-now", args: { message: three.id } }]);
+  expect(sent.ok).toBe(true);
+  expect((await users()).map((u) => [u.text, isQueued(u, "running")])).toEqual([
+    ["one", false],
+    ["two", true],
+    ["three", false],
+  ]);
 });

@@ -31,7 +31,7 @@ type fakeHarness struct {
 }
 
 func (h *fakeHarness) Start(_ context.Context, o harness.StartOptions, sink harness.Sink) (harness.Proc, error) {
-	p := &fakeProc{opts: o, sink: sink, sent: make(chan harness.UserMessage, 10), done: make(chan struct{})}
+	p := &fakeProc{opts: o, sink: sink, sent: make(chan harness.UserMessage, 10), now: make(chan string, 10), done: make(chan struct{})}
 	h.starts <- p
 	return p, nil
 }
@@ -45,11 +45,14 @@ type fakeProc struct {
 	opts harness.StartOptions
 	sink harness.Sink
 	sent chan harness.UserMessage
+	now  chan string
 	once sync.Once
 	done chan struct{}
 }
 
 func (p *fakeProc) Send(msg harness.UserMessage) error { p.sent <- msg; return nil }
+
+func (p *fakeProc) SendNow(_ context.Context, id string) error { p.now <- id; return nil }
 
 func (p *fakeProc) Interrupt(context.Context) error {
 	p.sink.OnEvent(harness.Event{Type: harness.EventResult, Data: map[string]any{"subtype": "error_during_execution", "isError": true}})
@@ -67,10 +70,18 @@ func (p *fakeProc) exit(err error) {
 	})
 }
 
+// take receives the next message and reports it delivered.
+func (p *fakeProc) take(t *testing.T) harness.UserMessage {
+	t.Helper()
+	msg := recv(t, p.sent)
+	p.sink.OnEvent(harness.Event{Type: harness.EventDelivered, Data: map[string]any{"id": msg.ID}})
+	return msg
+}
+
 // turn answers one message and ends the turn as harness session h-1.
 func (p *fakeProc) turn(t *testing.T, cost float64) harness.UserMessage {
 	t.Helper()
-	msg := recv(t, p.sent)
+	msg := p.take(t)
 	p.sink.OnEvent(harness.Event{Type: harness.EventText, Partial: true, Data: map[string]any{"text": "o"}})
 	p.sink.OnEvent(harness.Event{Type: harness.EventText, Data: map[string]any{"text": "ok"}})
 	p.sink.OnEvent(harness.Event{Type: harness.EventResult, Data: map[string]any{"sessionId": "h-1", "costUsd": cost, "contextTokens": 1200}})
@@ -223,7 +234,7 @@ func TestStartSessionWiresTheHarness(t *testing.T) {
 	if n.Title != "research" || n.Fields["harnessSessionId"] != "h-1" || n.Fields["costUsd"] != 0.25 || n.Fields["contextTokens"] != 1200 || n.Fields["createdBy"] != "user" {
 		t.Fatalf("session = %+v", n)
 	}
-	if got := e.eventTypes(s); !slices.Equal(got, []string{"user", "text", "result"}) {
+	if got := e.eventTypes(s); !slices.Equal(got, []string{"user", "delivered", "text", "result"}) {
 		t.Fatalf("stored events = %v", got)
 	}
 	children := e.get(e.task).Children
@@ -306,7 +317,7 @@ func TestIdleProcessClosesAndResumes(t *testing.T) {
 func TestApprovalFlowAndActorGuard(t *testing.T) {
 	e := newEnv(t, sessions.Options{})
 	s, p := e.start(`{"prompt":"write"}`)
-	recv(t, p.sent)
+	p.take(t)
 	decisions := make(chan harness.Decision, 2)
 	ask := func(id string) {
 		p.sink.OnPermission(harness.PermissionRequest{ID: id, Tool: "Write", Input: json.RawMessage(`{"file_path":"a.txt"}`)},
@@ -348,7 +359,7 @@ func TestApprovalFlowAndActorGuard(t *testing.T) {
 	if !slices.Equal(statuses, []string{"allowed:user", "denied:user"}) {
 		t.Fatalf("approvals = %v", statuses)
 	}
-	if got := e.eventTypes(s); !slices.Equal(got, []string{"user", "approval", "approval", "approval", "approval"}) {
+	if got := e.eventTypes(s); !slices.Equal(got, []string{"user", "delivered", "approval", "approval", "approval", "approval"}) {
 		t.Fatalf("events = %v", got)
 	}
 }
@@ -356,7 +367,7 @@ func TestApprovalFlowAndActorGuard(t *testing.T) {
 func TestInterruptDeniesPendingApprovals(t *testing.T) {
 	e := newEnv(t, sessions.Options{})
 	s, p := e.start(`{"prompt":"write"}`)
-	recv(t, p.sent)
+	p.take(t)
 	decisions := make(chan harness.Decision, 1)
 	p.sink.OnPermission(harness.PermissionRequest{ID: "perm-1", Tool: "Bash"}, func(d harness.Decision) { decisions <- d })
 	e.waitStatus(s, "waiting")
@@ -365,6 +376,73 @@ func TestInterruptDeniesPendingApprovals(t *testing.T) {
 		t.Fatalf("decision = %+v", d)
 	}
 	e.waitStatus(s, "idle")
+}
+
+func TestOneResultCanAnswerSeveralMessages(t *testing.T) {
+	e := newEnv(t, sessions.Options{})
+	s, p := e.start(`{"prompt":"a"}`)
+	p.take(t)
+	e.ok(s, "say", `{"text":"b"}`)
+	p.take(t)
+	p.sink.OnEvent(harness.Event{Type: harness.EventResult, Data: map[string]any{}})
+	e.waitStatus(s, "idle")
+}
+
+func TestSendNow(t *testing.T) {
+	e := newEnv(t, sessions.Options{})
+	s, p := e.start(`{"prompt":"a"}`)
+	p.take(t)
+	say := func(args string) string {
+		r := e.ok(s, "say", args)
+		recv(t, p.sent)
+		return r.Data.(map[string]string)["message"]
+	}
+	b, c := say(`{"text":"b"}`), say(`{"text":"c"}`)
+
+	e.ok(s, "send-now", `{}`)
+	if got := recv(t, p.now); got != b {
+		t.Fatalf("send-now without a message sent %q, want the oldest %q", got, b)
+	}
+	e.ok(s, "send-now", `{"message":"`+c+`"}`)
+	if got := recv(t, p.now); got != c {
+		t.Fatalf("send-now sent %q, want %q", got, c)
+	}
+	d := say(`{"text":"d","now":true}`)
+	if got := recv(t, p.now); got != d {
+		t.Fatalf("say now sent %q now, want %q", got, d)
+	}
+	if r := e.as(tree.Actor{Kind: "mcp"}, s, "send-now", `{"message":"nope"}`); r.OK {
+		t.Fatal("send-now of an unknown message succeeded")
+	}
+
+	p.sink.OnEvent(harness.Event{Type: harness.EventResult, Data: map[string]any{}})
+	e.waitStatus(s, "running")
+	for _, id := range []string{b, c, d} {
+		p.sink.OnEvent(harness.Event{Type: harness.EventDelivered, Data: map[string]any{"id": id}})
+	}
+	p.sink.OnEvent(harness.Event{Type: harness.EventResult, Data: map[string]any{}})
+	e.waitStatus(s, "idle")
+}
+
+func TestSendNowReordersMessagesWaitingForAProcess(t *testing.T) {
+	e := newEnv(t, sessions.Options{Max: 1})
+	a, pa := e.start(`{"prompt":"a"}`)
+	c := e.ok(e.task, "start-session", `{"prompt":"c1"}`).Addr
+	e.waitStatus(c, "queued")
+	e.ok(c, "say", `{"text":"c2"}`)
+	id := e.ok(c, "say", `{"text":"c3"}`).Data.(map[string]string)["message"]
+	e.ok(c, "send-now", `{"message":"`+id+`"}`)
+
+	pa.turn(t, 0)
+	e.waitStatus(a, "idle")
+	pc := recv(t, e.h.starts)
+	var got []string
+	for range 3 {
+		got = append(got, recv(t, pc.sent).Text)
+	}
+	if !slices.Equal(got, []string{"c3", "c1", "c2"}) {
+		t.Fatalf("delivery order = %v", got)
+	}
 }
 
 func TestCrashCloseAndRestartRecovery(t *testing.T) {
@@ -436,7 +514,7 @@ func TestForkSetAndOpenTerminal(t *testing.T) {
 	if n := e.get(fork); n.Title != "hello (fork)" || n.Fields["model"] != "sonnet" || n.Fields["status"] != "idle" {
 		t.Fatalf("fork = %+v", n)
 	}
-	if got := e.eventTypes(fork); !slices.Equal(got, []string{"user", "text", "result"}) {
+	if got := e.eventTypes(fork); !slices.Equal(got, []string{"user", "delivered", "text", "result"}) {
 		t.Fatalf("fork events = %v", got)
 	}
 	e.ok(fork, "say", `{"text":"branch off"}`)
@@ -476,5 +554,48 @@ func TestCapabilitiesAreCached(t *testing.T) {
 	}
 	if n := e.h.probes.Load(); n != 1 {
 		t.Fatalf("probes = %d, want 1", n)
+	}
+}
+
+func TestUsageNode(t *testing.T) {
+	e := newEnv(t, sessions.Options{})
+	s, p := e.start(`{"prompt":"hi","title":"research"}`)
+	p.take(t)
+	p.sink.OnEvent(harness.Event{Type: harness.EventLimits, Data: map[string]any{"limits": []harness.Limit{
+		{Window: "5h", UsedPercent: 42, ResetsAt: 1764252000}, {Window: "weekly", UsedPercent: 18, ResetsAt: 1764720000}}}})
+	p.sink.OnEvent(harness.Event{Type: harness.EventLimits, Data: map[string]any{"limits": []harness.Limit{{Window: "weekly", UsedPercent: 19, ResetsAt: 1764720000}}}})
+	for range 2 {
+		p.sink.OnEvent(harness.Event{Type: harness.EventResult, Data: map[string]any{"sessionId": "h-1", "contextTokens": 370, "contextWindow": 200000,
+			"tokens": harness.Tokens{Input: 10, Output: 20, CacheRead: 300, CacheWrite: 40}}})
+	}
+	if n := e.waitStatus(s, "idle"); n.Fields["contextWindow"] != 200000 {
+		t.Fatalf("contextWindow = %v", n.Fields["contextWindow"])
+	}
+	if got := e.eventTypes(s); !slices.Equal(got, []string{"user", "delivered", "result", "result"}) {
+		t.Fatalf("stored events = %v, want limits kept out of the transcript", got)
+	}
+	if !slices.ContainsFunc(e.get("app").Children, func(c tree.Summary) bool { return c.Addr == "usage" }) {
+		t.Fatal("usage is not a child of app")
+	}
+	raw, _ := json.Marshal(e.get("usage").Fields)
+	var u struct {
+		Limits []struct {
+			Harness, Window string
+			UsedPercent     float64
+			ResetsAt        int64
+		}
+		Today []struct {
+			Session, Task, Title, Harness        string
+			Input, Output, CacheRead, CacheWrite int
+		}
+	}
+	json.Unmarshal(raw, &u)
+	if len(u.Limits) != 2 || u.Limits[0].Harness != "claude" || u.Limits[0].Window != "5h" || u.Limits[0].UsedPercent != 42 ||
+		u.Limits[1].Window != "weekly" || u.Limits[1].UsedPercent != 19 || u.Limits[1].ResetsAt != 1764720000 {
+		t.Fatalf("limits = %s", raw)
+	}
+	if len(u.Today) != 1 || u.Today[0].Session != string(s) || u.Today[0].Task != string(e.task) || u.Today[0].Title != "research" ||
+		u.Today[0].Input != 20 || u.Today[0].Output != 40 || u.Today[0].CacheRead != 600 || u.Today[0].CacheWrite != 80 {
+		t.Fatalf("today = %s", raw)
 	}
 }

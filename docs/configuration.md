@@ -25,7 +25,6 @@ launchctl kickstart -k gui/$(id -u)/dev.layer8.daemon
 | `maxSessions` | `6` | how many agent sessions run at once; more are queued |
 | `apps.terminal` | `"Terminal"` | the macOS app a task opens in (`open target=terminal`), and where a session continues with `open-terminal` |
 | `apps.editor` | `"Visual Studio Code"` | the macOS app a task opens in with `open target=editor` |
-| `linearClientId` | `""` | client id of your own Linear OAuth app, for **Sign in with Linear**. See [Linear](panels.md#linear) |
 | `githubToken` | `""` | GitHub token for PRs, checks and CI logs. Empty uses `gh auth token`. See [What needs GitHub](install.md#what-needs-github) |
 | `autoApproveDo` | `false` | let sessions call the layer8 `do` tool without asking you. See [approvals](concepts.md#approvals) |
 | `updateRepo` | `"crashPopeye/layer8"` | the GitHub repository whose latest release the app updates from |
@@ -53,7 +52,6 @@ Set `LAYER8_HOME` to use another folder (the daemon's development mode uses `./.
 | `themes/*.json` | your themes |
 | `ui.json` | window layout and saved presets |
 | `plugin/` | the bundled layer8 skills, reinstalled at every daemon start |
-| `linear.json` | Linear credentials (0600) |
 | `logs/daemon.log` | the daemon's log |
 
 A `layer8.db` left by a pre-1.0 layer8 is moved to `layer8.db.legacy` on first start.

@@ -9,6 +9,8 @@ import (
 	"slices"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/crashPopeye/layer8/internal/harness"
 	"github.com/crashPopeye/layer8/internal/tasks"
 	"github.com/crashPopeye/layer8/internal/tree"
@@ -20,7 +22,8 @@ type run struct {
 	proc     harness.Proc
 	queued   bool
 	pending  []harness.UserMessage
-	turns    int
+	waiting  []string
+	inTurn   bool
 	respond  map[int64]func(harness.Decision)
 	after    string
 	stale    bool
@@ -42,19 +45,21 @@ func (r *run) state() string {
 		return "starting"
 	case len(r.respond) > 0:
 		return "waiting"
-	case r.turns > 0:
+	case len(r.waiting) > 0 || r.inTurn:
 		return "running"
 	}
 	return "idle"
 }
 
 func (r *run) idleLive() bool {
-	return r.proc != nil && r.after == "" && r.turns == 0 && len(r.respond) == 0
+	return r.proc != nil && r.after == "" && len(r.waiting) == 0 && !r.inTurn && len(r.respond) == 0
 }
 
 // say records a user turn and delivers it, starting or queueing a process when the session has none.
-func (m *Manager) say(id8 string, msg harness.UserMessage, by tree.Actor) error {
-	data := map[string]any{"text": msg.Text, "by": by.String()}
+// It returns the message id.
+func (m *Manager) say(id8 string, msg harness.UserMessage, by tree.Actor) (string, error) {
+	msg.ID = uuid.NewString()
+	data := map[string]any{"id": msg.ID, "text": msg.Text, "by": by.String()}
 	if len(msg.Files) > 0 {
 		data["files"] = msg.Files
 	}
@@ -72,12 +77,12 @@ func (m *Manager) say(id8 string, msg harness.UserMessage, by tree.Actor) error 
 	switch {
 	case r == nil:
 		m.admit(newRun(id8, []harness.UserMessage{msg}))
-		return nil
+		return msg.ID, nil
 	case r.proc != nil && r.after == "":
 		if err := r.proc.Send(msg); err != nil {
-			return err
+			return "", err
 		}
-		r.turns++
+		r.waiting = append(r.waiting, msg.ID)
 		r.active = time.Now()
 		if r.idle != nil {
 			r.idle.Stop()
@@ -86,7 +91,36 @@ func (m *Manager) say(id8 string, msg harness.UserMessage, by tree.Actor) error 
 		r.pending = append(r.pending, msg)
 	}
 	m.sync(r)
-	return nil
+	return msg.ID, nil
+}
+
+// sendNow makes the agent take in the queued message id at once. A message still
+// waiting for its process moves to the head of the line.
+func (m *Manager) sendNow(ctx context.Context, id8, id string) error {
+	m.mu.Lock()
+	r := m.runs[id8]
+	if r == nil {
+		m.mu.Unlock()
+		return errors.New("session has no queued message")
+	}
+	if i := slices.IndexFunc(r.pending, func(p harness.UserMessage) bool { return p.ID == id }); i >= 0 {
+		msg := r.pending[i]
+		r.pending = slices.Insert(slices.Delete(r.pending, i, i+1), 0, msg)
+		m.mu.Unlock()
+		return nil
+	}
+	if id == "" && len(r.waiting) > 0 {
+		id = r.waiting[0]
+	}
+	if !slices.Contains(r.waiting, id) || r.proc == nil {
+		m.mu.Unlock()
+		return fmt.Errorf("message %q is not queued on session:%s", id, id8)
+	}
+	p := r.proc
+	m.mu.Unlock()
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	return p.SendNow(ctx, id)
 }
 
 // admit starts r when a slot is free, and otherwise queues it and closes the oldest idle process.
@@ -165,7 +199,7 @@ func (m *Manager) start(r *run) {
 	}
 	for _, msg := range r.pending {
 		if p.Send(msg) == nil {
-			r.turns++
+			r.waiting = append(r.waiting, msg.ID)
 		}
 	}
 	r.pending = nil
@@ -201,7 +235,7 @@ func (m *Manager) spawn(r *run) (harness.Proc, float64, error) {
 		AllowedTools: allowed,
 		AppendSystemPrompt: fmt.Sprintf("You are running inside layer8 as session:%s in %s. The task tree's shared artifacts folder is %s ($LAYER8_ARTIFACTS). "+
 			"Read the layer8://here MCP resource for your task and the actions you can apply with the layer8 do tool.", r.id8, t.Addr(), t.Artifacts),
-	}, &sink{m: m, r: r})
+	}, &sink{m: m, r: r, harness: s.Harness})
 	return p, s.CostUSD, err
 }
 
@@ -300,7 +334,6 @@ func (m *Manager) interrupt(ctx context.Context, id8 string) error {
 		m.record(id8, harness.EventApproval, map[string]any{"approval": id, "decision": "deny", "message": "interrupted", "by": "user"})
 	}
 	clear(r.respond)
-	r.turns = min(r.turns, 1)
 	p := r.proc
 	m.sync(r)
 	m.mu.Unlock()
@@ -353,12 +386,18 @@ func (m *Manager) restartAfterTurn(id8 string) {
 
 // sink receives one process's output.
 type sink struct {
-	m *Manager
-	r *run
+	m       *Manager
+	r       *run
+	harness string
 }
 
 func (s *sink) OnEvent(e harness.Event) {
 	m, id8 := s.m, s.r.id8
+	if e.Type == harness.EventLimits {
+		limits, _ := e.Data["limits"].([]harness.Limit)
+		m.setLimits(s.harness, limits)
+		return
+	}
 	if e.Partial {
 		m.publish(id8, Event{Type: e.Type, Partial: true, Data: e.Data})
 		return
@@ -371,6 +410,8 @@ func (s *sink) OnEvent(e harness.Event) {
 		m.db.Exec(`UPDATE sessions SET capabilities = ? WHERE id8 = ?`, caps, id8)
 		m.saveHarnessID(id8, e.Data["session_id"])
 		m.changed(id8)
+	case e.Type == harness.EventDelivered:
+		m.delivered(s.r, e.Data["id"])
 	case e.Type == harness.EventResult:
 		m.endTurn(s.r, e.Data)
 	}
@@ -382,12 +423,21 @@ func (m *Manager) saveHarnessID(id8 string, v any) {
 	}
 }
 
+func (m *Manager) delivered(r *run, id any) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	r.waiting = slices.DeleteFunc(r.waiting, func(w string) bool { return w == id })
+	r.inTurn = true
+	m.sync(r)
+}
+
 func (m *Manager) endTurn(r *run, data map[string]any) {
 	m.saveHarnessID(r.id8, data["sessionId"])
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.db.Exec(`UPDATE sessions SET cost_usd = ?, context_tokens = ? WHERE id8 = ?`, r.baseCost+number(data["costUsd"]), int(number(data["contextTokens"])), r.id8)
-	r.turns = max(r.turns-1, 0)
+	m.db.Exec(`UPDATE sessions SET cost_usd = ?, context_tokens = ?, context_window = COALESCE(NULLIF(?, 0), context_window) WHERE id8 = ?`,
+		r.baseCost+number(data["costUsd"]), int(number(data["contextTokens"])), int(number(data["contextWindow"])), r.id8)
+	r.inTurn = false
 	r.active = time.Now()
 	if r.idleLive() {
 		if r.stale || len(m.queue) > 0 {
@@ -398,6 +448,7 @@ func (m *Manager) endTurn(r *run, data map[string]any) {
 	}
 	m.sync(r)
 	m.changed(r.id8)
+	m.tree.Changed(usageAddr)
 }
 
 func number(v any) float64 {

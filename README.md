@@ -25,7 +25,7 @@ A GitHub login (`gh auth login`) is only needed to open pull requests and read C
 | [Getting started](docs/getting-started.md) | First project → task → workflow → diff → pull request |
 | [Concepts](docs/concepts.md) | The node tree, tasks and sub-tasks, worktrees, artifacts, sessions, approvals, comments |
 | [Workflows & skills](docs/workflows.md) | The built-in workflows and skills, autopilot, writing your own workflow |
-| [Panels & customisation](docs/panels.md) | Panels, layouts, themes, plugins, ⌘K, Linear |
+| [Panels & customisation](docs/panels.md) | Panels, layouts, themes, plugins, ⌘K, links to issues |
 | [Configuration](docs/configuration.md) | Every setting with its default, the `~/.layer8` layout |
 | [CLI](docs/cli.md) | `layer8 get` and `layer8 do` |
 | [Contributing](docs/contributing.md) | Architecture, repo layout, building from source, releasing |

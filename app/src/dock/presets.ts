@@ -6,7 +6,6 @@ export type Arrangement = [id: string, slot: Slot][];
 const builtins: Record<string, Arrangement> = {
   Default: [
     ["tasks", "left"],
-    ["linear", "left"],
     ["session", "center"],
     ["artifacts", "right"],
     ["pr", "right"],

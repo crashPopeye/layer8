@@ -128,6 +128,7 @@ export function mockClient(seed: Op[] = []): Client {
         actions: [actions["create-task"]],
       };
     }
+    if (addr === "usage") return { addr, kind: "usage", title: "usage", fields: mockUsage(), children: [], actions: [] };
     const session = kind === "session" ? sessions.get(addr) : undefined;
     if (session) return session;
     const t = kind === "task" ? tasks.get(slugOf(addr)) : undefined;
@@ -365,3 +366,21 @@ export const demoSeed: Op[] = [
   { target: "artifact:eng-482/05-plan.md", action: "write", args: { content: plan } },
   { target: "artifact:eng-482/mockup-limits.html", action: "write", args: { content: mockup } },
 ];
+
+function mockUsage() {
+  const now = Math.floor(Date.now() / 1000);
+  const at = new Date().toISOString();
+  const tokens = (input: number, output: number, cacheRead: number) => ({ input, output, cacheRead, cacheWrite: Math.round(cacheRead / 20) });
+  return {
+    limits: [
+      { harness: "claude", window: "5h", usedPercent: 42, resetsAt: now + 2 * 3600 + 14 * 60, at },
+      { harness: "claude", window: "weekly", usedPercent: 76, resetsAt: now + 3 * 86400, at },
+      { harness: "codex", window: "5h", usedPercent: 8, resetsAt: now + 4 * 3600, at },
+    ],
+    today: [
+      { session: "session:mock0001", task: "task:eng-482", title: "Implement", harness: "claude", ...tokens(3200, 48_000, 2_100_000) },
+      { session: "session:mock0002", task: "task:eng-482", title: "Review", harness: "codex", ...tokens(900, 6100, 120_000) },
+      { session: "session:mock0003", task: "task:eng-501", title: "Research", harness: "claude", ...tokens(400, 9800, 310_000) },
+    ],
+  };
+}

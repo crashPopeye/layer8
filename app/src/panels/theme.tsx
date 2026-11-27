@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { Button } from "@/components/ui/button";
-import { Input, NativeSelect } from "@/components/ui/input";
+import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import { useClient, useNode } from "@/lib/react";
 import {
   colorTokens,
@@ -70,17 +71,15 @@ export function ThemePanel() {
     <div className="grid h-full content-start gap-4 overflow-auto p-3 text-[12px]">
       <section className="grid grid-cols-[56px_minmax(0,1fr)] items-center gap-2">
         <span className="text-muted-foreground">theme</span>
-        <NativeSelect
+        <Select
+          aria-label="theme"
           value={f.theme}
-          onChange={(e) => {
+          options={Object.keys(f.themes)}
+          onValueChange={(theme) => {
             setDraft(null);
-            run("set", { theme: e.target.value });
+            run("set", { theme });
           }}
-        >
-          {Object.keys(f.themes).map((t) => (
-            <option key={t}>{t}</option>
-          ))}
-        </NativeSelect>
+        />
         <span className="text-muted-foreground">mode</span>
         <div className="flex flex-wrap gap-1">
           {(["dark", "light", "system"] as const).map((m) => (

@@ -116,7 +116,7 @@ func TestTaskLifecycle(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(e.home, "tasks", "eng-482")); err != nil {
 		t.Fatal("artifacts folder missing")
 	}
-	if got := names(root); got != "create-subtask done archive open" {
+	if got := names(root); got != "create-subtask done archive open set-link" {
 		t.Fatalf("actions = %q", got)
 	}
 	if p := e.get("project:api-gateway"); len(p.Children) != 1 || p.Children[0].Addr != "task:eng-482" || !slices.ContainsFunc(p.Actions, func(a tree.Action) bool { return a.Name == "create-task" }) {
@@ -159,7 +159,7 @@ func TestTaskLifecycle(t *testing.T) {
 	}
 
 	e.ok("task:eng-482/pr1-store", "done", "")
-	if got := names(e.get("task:eng-482/pr1-store")); got != "reopen archive open" {
+	if got := names(e.get("task:eng-482/pr1-store")); got != "reopen archive open set-link" {
 		t.Fatalf("done actions = %q", got)
 	}
 	r = e.ok("task:eng-482", "archive", "")
@@ -246,5 +246,22 @@ func TestWatchReportsDiskChanges(t *testing.T) {
 		case <-timeout:
 			t.Fatal("no change reported")
 		}
+	}
+}
+
+func TestSetLink(t *testing.T) {
+	e := newEnv(t)
+	e.ok("project:api-gateway", "create-task", `{"title":"Rate-limit uploads","slug":"eng-482"}`)
+
+	e.ok("task:eng-482", "set-link", `{"url":"https://linear.app/acme/issue/ENG-482","label":"ENG-482"}`)
+	var link tasks.Link
+	json.Unmarshal(e.get("task:eng-482").Fields["link"].(json.RawMessage), &link)
+	if link != (tasks.Link{URL: "https://linear.app/acme/issue/ENG-482", Label: "ENG-482"}) {
+		t.Fatalf("link = %+v", link)
+	}
+
+	e.ok("task:eng-482", "set-link", `{}`)
+	if got := e.get("task:eng-482").Fields["link"].(json.RawMessage); got != nil {
+		t.Fatalf("cleared link = %s", got)
 	}
 }

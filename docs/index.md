@@ -36,7 +36,6 @@ flowchart LR
   S -- MCP: read the task, act on it --> D
   D --> H[(~/.layer8<br/>database, worktrees, artifacts)]
   D -- optional --> GH[GitHub: PRs, checks]
-  D -- optional --> LN[Linear]
 ```
 
 The daemon `layer8d` owns all state and every agent process. The window, the CLI and the agents themselves are clients of the same tree of nodes (app → project → task → session), so an agent can create sub-tasks, start sessions or open a PR the same way you do. See [Concepts](concepts.md).
@@ -49,7 +48,7 @@ The daemon `layer8d` owns all state and every agent process. The window, the CLI
 | [Getting started](getting-started.md) | First project → task → workflow → diff → pull request |
 | [Concepts](concepts.md) | The node tree, projects, tasks and sub-tasks, worktrees, artifacts, sessions, approvals, comments |
 | [Workflows & skills](workflows.md) | The built-in workflows, the skills, autopilot, writing your own workflow |
-| [Panels & customisation](panels.md) | The panels, layouts, themes, plugins, ⌘K, Linear |
+| [Panels & customisation](panels.md) | The panels, layouts, themes, plugins, ⌘K, links to issues |
 | [Configuration](configuration.md) | Every setting with its default, and the `~/.layer8` layout |
 | [CLI](cli.md) | `layer8 get` and `layer8 do` |
 | [Contributing](contributing.md) | Architecture, repo layout, building from source, releasing |

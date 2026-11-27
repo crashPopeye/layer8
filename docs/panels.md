@@ -3,15 +3,14 @@ title: Panels & customisation
 ---
 # Panels & customisation
 
-The window is a dock of panels that all follow the task you select. You can drag panels into any layout, pop a group out into its own window, switch between saved layouts with ⌘K, restyle the app with themes, and add your own panels as JavaScript plugins. Linear issues have their own panel.
+The window is a dock of panels that all follow the task you select. You can drag panels into any layout, pop a group out into its own window, switch between saved layouts with ⌘K, restyle the app with themes, and add your own panels as JavaScript plugins.
 
 ## The panels
 
 | Panel | Shows | Default place |
 |---|---|---|
 | **Tasks** | projects, tasks, sub-tasks and their sessions; **Add project**, **New task** | left |
-| **Linear** | your open Linear issues; create a task from one | left |
-| **Session** | the selected session's transcript, approvals and message input | centre |
+| **Session** | the selected session's transcript, approvals and message input; **Send now** delivers a queued message mid-turn | centre |
 | **Artifacts** | the task tree's artifacts, rendered, with comments | right |
 | **PR** | the task's pull request: state, checks, review threads | right |
 | **Files** | the task's worktree | right |
@@ -19,7 +18,7 @@ The window is a dock of panels that all follow the task you select. You can drag
 | **Theme** | the theme editor | right |
 | **Plugins** | your JS plugins and their status | right |
 
-Open any panel with ⌘1–9 or from ⌘K.
+Open any panel with ⌘1–9 or from ⌘K. The footer shows token usage and rate-limit windows for your agents.
 
 ## Keys
 
@@ -63,22 +62,18 @@ curl -o ~/.layer8/plugins/open-prs.js https://raw.githubusercontent.com/crashPop
 
 Or ask an agent: the `make-panel` skill writes the plugin from a plain-language request.
 
-## Linear
+## Links and Linear
 
-Connect Linear once, then link tasks to issues. Credentials live in `~/.layer8/linear.json` (0600).
+A task can point at something outside layer8, such as an issue in your tracker. The link shows as a pill in the top bar; an empty `url` clears it.
 
-- **API key (default):** create one in Linear → Settings → Security & access → Personal API keys, then `layer8 do linear connect apiKey=lin_api_…`.
-- **Sign in with Linear (optional):** create your own OAuth app in Linear → Settings → API → OAuth applications with the callback URL `http://127.0.0.1:7979/api/linear/callback`, put its client id in `~/.layer8/config.json` as `linearClientId`, restart the daemon, then run `layer8 do linear connect-oauth` and open the returned URL. PKCE is used, so no client secret is stored.
+```sh
+layer8 do task:fix-invoice-rounding set-link url=https://linear.app/acme/issue/ENG-482 label=ENG-482
+```
 
-The `linear` node lists your open issues as `linear:<ID>` children; `layer8 get linear:ENG-482` reads one, and `layer8 do linear search query=upload` searches.
+Tracker integrations ship as plugins, not in the core. `examples/plugins/linear.js` lists your open Linear issues with your own API key and starts a task from one:
 
-Tasks link to issues, they don't mirror them. A linked task's state is re-read from Linear at most once a minute.
-
-| Action | On | Does |
-|---|---|---|
-| `create-task-from-linear issue=ENG-482` | project | a task titled like the issue, on Linear's branch name, with `01-ticket.md` in the artifacts, linked |
-| `link-linear issue=…` / `refresh-linear` / `unlink-linear` | task | set, re-read or clear the link; root tasks (re)write `01-ticket.md` |
-| `create-subtask name=… linear:=true` | task | also creates a Linear sub-issue under the task's issue and links it |
-| `open-pr` | linked task | also attaches the pull request to the issue |
+```sh
+curl -o ~/.layer8/plugins/linear.js https://raw.githubusercontent.com/crashPopeye/layer8/main/examples/plugins/linear.js
+```
 
 [← Workflows & skills](workflows.md) · [Configuration →](configuration.md)

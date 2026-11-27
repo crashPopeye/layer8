@@ -1,17 +1,14 @@
 import { Ellipsis, Plug } from "lucide-react";
-import { Popover } from "radix-ui";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { taskOf, useFocus } from "@/lib/focus";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, menuLabel } from "@/components/ui/dropdown-menu";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useClient, useNode } from "@/lib/react";
 import type { Addr, Node } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { walk } from "@/panels/tasks/tree";
-import { useTree } from "@/panels/tasks/use-tree";
 import { Composer } from "./composer";
 import { empty, isQueued, reduceAll, type SessionEvent, type Transcript } from "./model";
-import { latest, pickSession, useDraft } from "./target";
+import { pickSession, useShownSession } from "./target";
 import { ItemView, type Answer } from "./transcript";
 
 const page = 1000;
@@ -77,33 +74,31 @@ function Capabilities({ caps }: { caps: any }) {
   if (!servers.length && !plugins.length) return null;
   const worst = servers.find((s) => s.status === "failed") ?? servers.find((s) => s.status !== "connected");
   return (
-    <Popover.Root>
-      <Popover.Trigger asChild>
+    <Popover>
+      <PopoverTrigger asChild>
         <Button variant="outline" size="xs" className="font-mono text-[11px] text-muted-foreground" title="Loaded MCP servers and plugins">
           <span className={cn("size-1.5 rounded-full", mcpDot(worst?.status ?? "connected"))} />
           {servers.length} MCP · {plugins.length} plugins
         </Button>
-      </Popover.Trigger>
-      <Popover.Portal>
-        <Popover.Content sideOffset={4} align="end" className="z-50 w-72 rounded-md border bg-popover p-2 text-[12px] shadow-md">
-          <p className="mb-1 text-[11px] text-muted-foreground">MCP servers and connectors</p>
-          {servers.map((s) => (
-            <p key={s.name} className="flex items-center gap-2 py-0.5">
-              <span className={cn("size-1.5 rounded-full", mcpDot(s.status))} />
-              <span className="truncate">{s.name}</span>
-              <span className="ml-auto font-mono text-[11px] text-muted-foreground">{s.status}</span>
-            </p>
-          ))}
-          <p className="mt-2 mb-1 text-[11px] text-muted-foreground">Plugins</p>
-          {plugins.map((p) => (
-            <p key={p.name} className="flex items-center gap-2 py-0.5">
-              <Plug className="size-3 text-muted-foreground" />
-              {p.name}
-            </p>
-          ))}
-        </Popover.Content>
-      </Popover.Portal>
-    </Popover.Root>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="p-2 text-[12px]">
+        <p className={cn(menuLabel, "px-0 pt-0")}>MCP servers and connectors</p>
+        {servers.map((s) => (
+          <p key={s.name} className="flex items-center gap-2 py-0.5">
+            <span className={cn("size-1.5 rounded-full", mcpDot(s.status))} />
+            <span className="truncate">{s.name}</span>
+            <span className="ml-auto font-mono text-[11px] text-muted-foreground">{s.status}</span>
+          </p>
+        ))}
+        <p className={cn(menuLabel, "mt-1 px-0")}>Plugins</p>
+        {plugins.map((p) => (
+          <p key={p.name} className="flex items-center gap-2 py-0.5">
+            <Plug className="size-3 text-muted-foreground" />
+            {p.name}
+          </p>
+        ))}
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -168,6 +163,14 @@ function SessionView({ node, task }: { node: Node; task: Addr }) {
     [client, node.addr],
   );
 
+  const sendNow = useCallback(
+    async (id: string) => {
+      const [r] = await client.doOps([{ target: node.addr, action: "send-now", args: { message: id } }]);
+      setMessage(r.ok ? null : (r.message ?? "send-now failed"));
+    },
+    [client, node.addr],
+  );
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const key = e.key.toLowerCase();
@@ -202,7 +205,7 @@ function SessionView({ node, task }: { node: Node; task: Addr }) {
           </Button>
         )}
         {items.map((it) => (
-          <ItemView key={it.key} item={it} queued={isQueued(t, it, status)} answer={answer} pending={pending} />
+          <ItemView key={it.key} item={it} queued={isQueued(it, status)} sendNow={sendNow} answer={answer} pending={pending} />
         ))}
         {t.items.length === 0 && <p className="text-muted-foreground">No messages yet.</p>}
         {node.fields?.error ? <p className="my-2 text-bad">{String(node.fields.error)}</p> : null}
@@ -221,13 +224,8 @@ function SessionNode({ addr, task }: { addr: Addr; task: Addr }) {
 
 /** The focused session's live transcript, approvals and composer; a new-session composer when the task has none or ⌘T asked for one. */
 export function SessionPanel() {
-  const focus = useFocus();
-  const task = taskOf(focus);
-  const draft = useDraft();
-  const { tree } = useTree();
+  const { task, session, sessions } = useShownSession();
   if (!task) return <p className="p-3 text-muted-foreground">Focus a task to see its sessions.</p>;
-  const sessions = walk(tree).find((i) => i.addr === task)?.sessions ?? [];
-  const session = focus.startsWith("session:") ? focus : draft === task ? null : (latest(sessions)?.addr ?? null);
 
   return (
     <div className="flex h-full flex-col">
@@ -236,7 +234,7 @@ export function SessionPanel() {
       ) : (
         <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-1 text-muted-foreground">
           <p>New session in {task}</p>
-          <p className="text-[12px]">Pick harness, model, effort and permissions below, then send the first prompt.</p>
+          <p className="text-[12px]">Choose the model and worktree below, then send the first prompt.</p>
         </div>
       )}
       <Composer key={task} task={task} session={session} sessions={sessions} />

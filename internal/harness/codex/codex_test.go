@@ -45,9 +45,11 @@ func fakeCodex(logPath string) {
 			ID     json.RawMessage `json:"id"`
 			Method string          `json:"method"`
 			Params struct {
-				ThreadID string `json:"threadId"`
-				Cursor   string `json:"cursor"`
-				Input    []struct {
+				ThreadID       string `json:"threadId"`
+				Cursor         string `json:"cursor"`
+				ClientID       string `json:"clientUserMessageId"`
+				ExpectedTurnID string `json:"expectedTurnId"`
+				Input          []struct {
 					Text string `json:"text"`
 				} `json:"input"`
 			} `json:"params"`
@@ -55,6 +57,11 @@ func fakeCodex(logPath string) {
 		}
 		json.Unmarshal(in.Bytes(), &m)
 		ok := func(result any) { out.Encode(map[string]any{"id": m.ID, "result": result}) }
+		took := func() {
+			if m.Params.ClientID != "" {
+				notify("item/started", map[string]any{"item": map[string]any{"type": "userMessage", "id": "u-" + m.Params.ClientID, "clientId": m.Params.ClientID, "content": []any{}}})
+			}
+		}
 		switch m.Method {
 		case "initialize":
 			if os.Getenv("FAKE_INIT_CRASH") != "" {
@@ -84,6 +91,14 @@ func fakeCodex(logPath string) {
 			} else {
 				ok(map[string]any{"data": []any{map[string]any{"id": "gpt-5-mini", "model": "gpt-5-mini", "displayName": "GPT-5 mini", "description": "Cheap", "supportedReasoningEfforts": []any{}}}, "nextCursor": nil})
 			}
+		case "account/rateLimits/read":
+			if os.Getenv("FAKE_RATE_LIMITS") == "" {
+				out.Encode(map[string]any{"id": m.ID, "error": map[string]any{"code": -32600, "message": "codex account authentication required to read rate limits"}})
+				continue
+			}
+			ok(map[string]any{"rateLimits": map[string]any{"limitId": "codex",
+				"primary":   map[string]any{"usedPercent": 42, "windowDurationMins": 300, "resetsAt": 1764252000},
+				"secondary": map[string]any{"usedPercent": 18, "windowDurationMins": 10080, "resetsAt": 1764720000}}})
 		case "mcpServerStatus/list":
 			ok(map[string]any{"data": []any{
 				map[string]any{"name": "layer8", "authStatus": "bearerToken", "tools": map[string]any{}},
@@ -93,6 +108,13 @@ func fakeCodex(logPath string) {
 			ok(map[string]any{})
 			turnDone("t9", "interrupted")
 			active = false
+		case "turn/steer":
+			if !active || m.Params.ExpectedTurnID != "t9" || m.Params.Input[0].Text == "echo stuck" {
+				out.Encode(map[string]any{"id": m.ID, "error": map[string]any{"code": -32600, "message": "active turn is not steerable"}})
+				continue
+			}
+			ok(map[string]any{"turnId": "t9"})
+			took()
 		case "turn/start":
 			if active {
 				out.Encode(map[string]any{"id": m.ID, "error": map[string]any{"code": -32600, "message": "a turn is already running"}})
@@ -104,6 +126,10 @@ func fakeCodex(logPath string) {
 				continue
 			}
 			ok(map[string]any{"turn": map[string]any{"id": "t1", "status": "inProgress", "items": []any{}}})
+			if text == "slow" {
+				notify("turn/started", map[string]any{"turn": map[string]any{"id": "t9"}})
+			}
+			took()
 			switch {
 			case text == "hello":
 				notify("turn/started", map[string]any{"threadId": "th-1", "turn": map[string]any{"id": "t1"}})
@@ -130,9 +156,12 @@ func fakeCodex(logPath string) {
 			case text == "ask":
 				active = true
 				out.Encode(map[string]any{"id": 103, "method": "item/tool/requestUserInput", "params": map[string]any{"itemId": "x"}})
+			case text == "limits":
+				notify("account/rateLimits/updated", map[string]any{"rateLimits": map[string]any{"primary": nil,
+					"secondary": map[string]any{"usedPercent": 19.5, "windowDurationMins": 10080, "resetsAt": 1764720000}}})
+				turnDone("t1", "completed")
 			case text == "slow":
 				active = true
-				notify("turn/started", map[string]any{"turn": map[string]any{"id": "t9"}})
 			case text == "crash":
 				fmt.Fprintln(os.Stderr, "fatal: out of cheese")
 				os.Exit(2)
@@ -274,6 +303,7 @@ func TestStartHandshakeAndThreadParams(t *testing.T) {
 		`{"id":2,"method":"skills/extraRoots/set","params":{"extraRoots":["/opt/layer8/plugin/skills","/tmp/extra/skills"]}}`,
 		`{"id":3,"method":"skills/list","params":{"cwds":["` + cwd + `"]}}`,
 		`{"id":4,"method":"thread/start","params":{"approvalPolicy":"on-request","config":{"mcp_servers":{"layer8":{"http_headers":{"Authorization":"Bearer tok","X-Layer8-Session":"9c41e0aa"},"url":"http://127.0.0.1:7979/mcp"}},"sandbox_workspace_write":{"writable_roots":["/home/a/.layer8/tasks/eng-482"]}},"cwd":"` + cwd + `","developerInstructions":"You run inside layer8.","model":"gpt-5","sandbox":"workspace-write"}}`,
+		`{"id":5,"method":"account/rateLimits/read","params":null}`,
 	}
 	if !slices.Equal(lines[1:], want) {
 		t.Fatalf("requests\n got %q\nwant %q", lines[1:], want)
@@ -332,10 +362,10 @@ func TestSendInput(t *testing.T) {
 	rec := newRecorder(nil)
 	p := start(t, h, rec, harness.StartOptions{Effort: "low"})
 	for _, msg := range []harness.UserMessage{
-		{Text: "echo look", Files: []string{"/w/a.go", "/w/b.md"}, Images: []harness.Image{{MediaType: "image/png", Data: []byte("png")}}},
-		{Text: "/review the auth change"},
-		{Text: "/layer8:plan\nsplit it"},
-		{Text: "/unknown stays text"},
+		{ID: "m1", Text: "echo look", Files: []string{"/w/a.go", "/w/b.md"}, Images: []harness.Image{{MediaType: "image/png", Data: []byte("png")}}},
+		{ID: "m2", Text: "/review the auth change"},
+		{ID: "m3", Text: "/layer8:plan\nsplit it"},
+		{ID: "m4", Text: "/unknown stays text"},
 	} {
 		if err := p.Send(msg); err != nil {
 			t.Fatal(err)
@@ -345,10 +375,10 @@ func TestSendInput(t *testing.T) {
 		rec.until(t, harness.EventResult, 5*time.Second)
 	}
 	want := []string{
-		`{"effort":"low","input":[{"text":"echo look\n\nAttached files:\n- /w/a.go\n- /w/b.md","type":"text"},{"type":"image","url":"data:image/png;base64,cG5n"}],"threadId":"th-1"}`,
-		`{"effort":"low","input":[{"text":"$review the auth change","type":"text"},{"name":"review","path":"/s/review/SKILL.md","type":"skill"}],"threadId":"th-1"}`,
-		`{"effort":"low","input":[{"text":"$layer8-plan\nsplit it","type":"text"},{"name":"layer8-plan","path":"/s/plan/SKILL.md","type":"skill"}],"threadId":"th-1"}`,
-		`{"effort":"low","input":[{"text":"/unknown stays text","type":"text"}],"threadId":"th-1"}`,
+		`{"clientUserMessageId":"m1","effort":"low","input":[{"text":"echo look\n\nAttached files:\n- /w/a.go\n- /w/b.md","type":"text"},{"type":"image","url":"data:image/png;base64,cG5n"}],"threadId":"th-1"}`,
+		`{"clientUserMessageId":"m2","effort":"low","input":[{"text":"$review the auth change","type":"text"},{"name":"review","path":"/s/review/SKILL.md","type":"skill"}],"threadId":"th-1"}`,
+		`{"clientUserMessageId":"m3","effort":"low","input":[{"text":"$layer8-plan\nsplit it","type":"text"},{"name":"layer8-plan","path":"/s/plan/SKILL.md","type":"skill"}],"threadId":"th-1"}`,
+		`{"clientUserMessageId":"m4","effort":"low","input":[{"text":"/unknown stays text","type":"text"}],"threadId":"th-1"}`,
 	}
 	if got := sent(t, log, "turn/start"); !slices.Equal(got, want) {
 		t.Fatalf("turn/start\n got %q\nwant %q", got, want)
@@ -371,6 +401,8 @@ func summary(events []harness.Event) []string {
 			s += ":" + e.Data["name"].(string)
 		case harness.EventToolResult:
 			s += fmt.Sprintf(":%v:%v", e.Data["toolUseId"], e.Data["isError"])
+		case harness.EventDelivered:
+			s += ":" + e.Data["id"].(string)
 		}
 		out = append(out, s)
 	}
@@ -390,8 +422,41 @@ func TestTurnEvents(t *testing.T) {
 	}
 	res, _ := json.Marshal(got[len(got)-1].Data)
 	if want := `{"contextTokens":1230,"contextWindow":272000,"costUsd":0,"durationMs":900,"isError":false,"result":"Hello","sessionId":"th-1","subtype":"success",` +
-		`"usage":{"total":{"totalTokens":5000},"last":{"inputTokens":1200,"cachedInputTokens":1000,"outputTokens":30,"totalTokens":1230},"modelContextWindow":272000}}`; string(res) != want {
+		`"tokens":{"input":200,"output":30,"cacheRead":1000,"cacheWrite":0},` +
+		`"usage":{"total":{"totalTokens":5000,"inputTokens":0,"cachedInputTokens":0,"cacheWriteInputTokens":0,"outputTokens":0},` +
+		`"last":{"totalTokens":1230,"inputTokens":1200,"cachedInputTokens":1000,"cacheWriteInputTokens":0,"outputTokens":30},"modelContextWindow":272000}}`; string(res) != want {
 		t.Fatalf("result\n got %s\nwant %s", res, want)
+	}
+}
+
+func TestRateLimits(t *testing.T) {
+	h, _ := fake(t, "FAKE_RATE_LIMITS=1")
+	rec := newRecorder(nil)
+	p := start(t, h, rec, harness.StartOptions{})
+	limits := func() []harness.Limit {
+		got := rec.until(t, harness.EventLimits, 5*time.Second)
+		return got[len(got)-1].Data["limits"].([]harness.Limit)
+	}
+	want := []harness.Limit{{Window: "5h", UsedPercent: 42, ResetsAt: 1764252000}, {Window: "weekly", UsedPercent: 18, ResetsAt: 1764720000}}
+	if got := limits(); !slices.Equal(got, want) {
+		t.Fatalf("read limits = %v, want %v", got, want)
+	}
+	p.Send(harness.UserMessage{Text: "limits"})
+	want = []harness.Limit{{Window: "weekly", UsedPercent: 19.5, ResetsAt: 1764720000}}
+	if got := limits(); !slices.Equal(got, want) {
+		t.Fatalf("updated limits = %v, want %v", got, want)
+	}
+}
+
+func TestWindowName(t *testing.T) {
+	minutes := func(n int) *int { return &n }
+	for _, c := range []struct {
+		minutes *int
+		want    string
+	}{{minutes(300), "5h"}, {minutes(10080), "weekly"}, {minutes(43200), "30d"}, {minutes(45), "45m"}, {nil, "primary"}} {
+		if got := windowName(c.minutes, "primary"); got != c.want {
+			t.Errorf("windowName(%v) = %q, want %q", c.minutes, got, c.want)
+		}
 	}
 }
 
@@ -485,14 +550,51 @@ func TestSendQueuesWhileATurnRuns(t *testing.T) {
 	}
 }
 
+func TestSendNowSteersOrInterrupts(t *testing.T) {
+	h, log := fake(t)
+	rec := newRecorder(nil)
+	p := start(t, h, rec, harness.StartOptions{})
+	rec.until(t, harness.EventSystem, 5*time.Second)
+	for _, msg := range []harness.UserMessage{{ID: "m1", Text: "slow"}, {ID: "m2", Text: "echo two"}, {ID: "m3", Text: "echo three"}, {ID: "m4", Text: "echo stuck"}} {
+		p.Send(msg)
+	}
+	rec.until(t, harness.EventDelivered, 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := p.SendNow(ctx, "m3"); err != nil {
+		t.Fatal(err)
+	}
+	if s := summary(rec.until(t, harness.EventDelivered, 5*time.Second)); !slices.Equal(s, []string{"delivered:m3"}) {
+		t.Fatalf("after steering: %v", s)
+	}
+	if got := sent(t, log, "turn/steer"); len(got) != 1 || got[0] != `{"clientUserMessageId":"m3","expectedTurnId":"t9","input":[{"text":"echo three","type":"text"}],"threadId":"th-1"}` {
+		t.Fatalf("turn/steer = %q", got)
+	}
+	if err := p.SendNow(ctx, "m3"); err != nil || len(sent(t, log, "turn/steer")) != 1 {
+		t.Fatalf("send-now of a delivered message steered again: %v", err)
+	}
+
+	if err := p.SendNow(ctx, "m4"); err != nil {
+		t.Fatal(err)
+	}
+	var got []harness.Event
+	for range 3 {
+		got = append(got, rec.until(t, harness.EventResult, 5*time.Second)...)
+	}
+	if s := summary(got); !slices.Equal(s, []string{"result", "delivered:m4", "text:stuck", "result", "delivered:m2", "text:two", "result"}) {
+		t.Fatalf("an unsteerable message did not go next: %v", s)
+	}
+}
+
 func TestRejectedTurnEndsWithAnErrorResult(t *testing.T) {
 	h, _ := fake(t)
 	rec := newRecorder(nil)
 	p := start(t, h, rec, harness.StartOptions{})
 	rec.until(t, harness.EventSystem, 5*time.Second)
-	p.Send(harness.UserMessage{Text: "fail"})
+	p.Send(harness.UserMessage{ID: "m1", Text: "fail"})
 	got := rec.until(t, harness.EventResult, 5*time.Second)
-	if s := summary(got); !slices.Equal(s, []string{"error", "result"}) || got[1].Data["isError"] != true || got[1].Data["result"] != "thread not loaded" {
+	if s := summary(got); !slices.Equal(s, []string{"delivered:m1", "error", "result"}) || got[2].Data["isError"] != true || got[2].Data["result"] != "thread not loaded" {
 		t.Fatalf("events = %v %v", s, got)
 	}
 	p.Send(harness.UserMessage{Text: "echo next"})

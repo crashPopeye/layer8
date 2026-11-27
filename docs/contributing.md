@@ -23,7 +23,6 @@ flowchart LR
   CL -- "MCP resources + do" --> D
   D -- "GitHub token" --> GH["GitHub: PRs, checks"]
   D -- "anonymous or token" --> REL["GitHub releases"]
-  D --> LN["Linear"]
   RS -- "updates via /api/update/*" --> D
 ```
 
@@ -54,7 +53,6 @@ A package adds a kind with `tree.Register`, or extends another package's kind wi
 | `internal/server` | loopback/origin/token guard, HTTP API, SSE hub |
 | `internal/mcp` | MCP streamable HTTP endpoint |
 | `internal/projects` | `app` and `project` kinds |
-| `internal/linear` | Linear GraphQL client, API key / OAuth PKCE, `linear` kind |
 | `internal/store` | SQLite + migrations |
 | `internal/config` | `~/.layer8` (or `LAYER8_HOME`), `config.json`, token |
 | `internal/ui` | `ui:layout`, `ui:theme`, `ui:plugins`: dock layout and presets, themes, JS plugins |

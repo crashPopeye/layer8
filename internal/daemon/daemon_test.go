@@ -49,12 +49,6 @@ func TestEnsureLeavesAHealthyDaemonAlone(t *testing.T) {
 	defer ts.Close()
 	cfg.Addr = ts.Listener.Addr().String()
 
-	resp, err := http.Get(ts.URL + "/api/linear/callback?state=forged&code=x")
-	if err != nil || resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("linear callback must be public and reject unknown state: %v %v", resp, err)
-	}
-	resp.Body.Close()
-
 	exe, _ := os.Executable()
 	exe, _ = filepath.EvalSymlinks(exe)
 	agents := filepath.Join(home, "Library", "LaunchAgents")

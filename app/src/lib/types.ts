@@ -46,7 +46,7 @@ export type UiCommand =
 /** One session transcript entry as `/api/sessions/{id8}/events` and the `session` SSE event carry it. Partial events have no id. */
 export interface SessionEvent {
   id?: number;
-  type: "user" | "text" | "thinking" | "tool_use" | "tool_result" | "approval" | "result" | "error" | "system";
+  type: "user" | "delivered" | "text" | "thinking" | "tool_use" | "tool_result" | "approval" | "result" | "error" | "system";
   at?: string;
   partial?: boolean;
   data: Record<string, any>;

@@ -24,8 +24,8 @@ flowchart TD
 |---|---|---|
 | `app` | the app: projects and workflows | `add-project` |
 | `project:<name>` | a git repository | `create-task`, `rename`, `remove` |
-| `task:<slug>` / `task:<slug>/<sub>` | a task or sub-task | `start-session`, `create-subtask`, `run-workflow`, `commit`, `push`, `open-pr`, `done`, `archive` |
-| `session:<id8>` | one agent conversation | `say`, `allow`, `deny`, `interrupt`, `fork`, `close` |
+| `task:<slug>` / `task:<slug>/<sub>` | a task or sub-task | `start-session`, `create-subtask`, `run-workflow`, `commit`, `push`, `open-pr`, `set-link`, `done`, `archive` |
+| `session:<id8>` | one agent conversation | `say`, `send-now`, `allow`, `deny`, `interrupt`, `fork`, `close` |
 | `artifact:<task>/<file>` | a file in the artifacts folder | `write`, `delete`, `add-comment` |
 | `comment:<id8>` | a comment to the agent | `resolve`, `reopen`, `edit`, `delete` |
 | `here` | from inside a session: the session's own task | everything the task offers |
@@ -69,7 +69,7 @@ A session is one conversation with an agent, started in the task's worktree (`st
 | model, effort, permission mode | passed to the harness; change them with `set` |
 | status | `queued`, `starting`, `running`, `waiting`, `idle`, `done`, `failed` |
 
-Talk to it with `say` (the Session panel's input). `interrupt` stops the current turn, `fork` copies the conversation into a new session, `open-terminal` continues it in your terminal, `close` ends it. At most `maxSessions` (default 6) run at once; the rest queue.
+Talk to it with `say` (the Session panel's input). A message sent while the agent is busy queues until the turn ends; `send-now` (**Send now**) delivers it at once. `interrupt` stops the current turn, `fork` copies the conversation into a new session, `open-terminal` continues it in your terminal, `close` ends it. At most `maxSessions` (default 6) run at once; the rest queue.
 
 Every session gets the layer8 MCP server, so the agent can read `layer8://here` (its task, branch, base, worktree and artifacts) and apply actions with the `do` tool, for example to create sub-tasks or open the PR.
 

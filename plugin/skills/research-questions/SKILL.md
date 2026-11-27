@@ -10,7 +10,7 @@ Goal: a short list of questions whose answers describe **how the code works toda
 
 ## 1. Orient
 
-Read `layer8://here` (MCP server `layer8`). Note `artifacts` (also `$LAYER8_ARTIFACTS`) and `worktree`. Read every file already in the artifacts folder, starting with the ticket (`01-ticket.md` when the task came from Linear). Add what the user typed after the command.
+Read `layer8://here` (MCP server `layer8`). Note `artifacts` (also `$LAYER8_ARTIFACTS`) and `worktree`. Read every file already in the artifacts folder, starting with the ticket (`01-ticket.md` when there is one). Add what the user typed after the command.
 
 ## 2. Skim, don't research
 

@@ -8,6 +8,7 @@ import { registerPanel, type Slot } from "@/dock/registry";
 import { setFocus, useFocus } from "@/lib/focus";
 import { registerCommand } from "@/lib/palette";
 import { useNode } from "@/lib/react";
+import { openUrl } from "@/lib/tauri";
 import { token } from "@/lib/theme";
 import type { Addr, Client, Depth, Node, Op, Result } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -57,6 +58,7 @@ export interface SDK {
   registerPanel(p: PluginPanel): void;
   registerCommand(c: PluginCommand): void;
   openPanel(id: string): void;
+  openUrl(url: string): void;
   notify(text: string, level?: string): void;
   theme: { mode(): string; token(name: string): string };
 }
@@ -105,6 +107,7 @@ export function createSandbox(name: string, client: Client): Sandbox {
         box.commands.push(c.id);
       },
       openPanel: (id) => openPanel(id),
+      openUrl,
       notify: (text, level = "info") => toast(level, text),
       theme: { mode: () => document.documentElement.dataset.theme ?? "dark", token },
     },

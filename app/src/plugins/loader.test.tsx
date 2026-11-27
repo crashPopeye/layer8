@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
-import { render, screen } from "@testing-library/react";
-import { afterEach, expect, it } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, expect, it, vi } from "vitest";
 import { panel } from "@/dock/registry";
 import { commands } from "@/lib/palette";
 import { mockClient } from "@/lib/mock";
@@ -33,6 +33,28 @@ it("loads the sample plugin, whose panel renders through the SDK", async () => {
     </ClientProvider>,
   );
   expect(await screen.findByText("No open pull requests.")).toBeTruthy();
+});
+
+it("loads the Linear example, which lists the issues of the API key it is given", async () => {
+  const issue = { id: "1", identifier: "ENG-482", title: "Rate-limit uploads", url: "https://linear.app/a/issue/ENG-482", state: { name: "Todo" } };
+  const fetch = vi.fn(async (_url: string, _init: RequestInit) => Response.json({ data: { viewer: { name: "Ada", assignedIssues: { nodes: [issue] } } } }));
+  vi.stubGlobal("fetch", fetch);
+  const l = await load("linear", readFileSync("../examples/plugins/linear.js", "utf8"));
+  expect([l.panels, l.commands, l.error]).toEqual([["linear"], ["linear.show"], undefined]);
+  const def = panel("linear")!;
+
+  render(
+    <ClientProvider client={mockClient()}>
+      <def.component />
+    </ClientProvider>,
+  );
+  fireEvent.change(screen.getByLabelText("Linear API key"), { target: { value: "lin_api_x" } });
+  fireEvent.click(screen.getByText("Connect"));
+  expect(await screen.findByText("Rate-limit uploads")).toBeTruthy();
+  expect(screen.getByText("Linear · Ada")).toBeTruthy();
+  expect(fetch.mock.calls[0][1]).toMatchObject({ headers: { Authorization: "lin_api_x" } });
+  localStorage.clear();
+  vi.unstubAllGlobals();
 });
 
 it("removes what a plugin registered when it is disposed", async () => {
