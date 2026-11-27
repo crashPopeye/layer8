@@ -51,7 +51,14 @@ func Command(ctx context.Context, name string, args ...string) *exec.Cmd {
 
 // Run runs git in dir and returns its trimmed stdout, or an error carrying its stderr.
 func Run(ctx context.Context, dir string, args ...string) (string, error) {
+	out, err := RunEnv(ctx, dir, nil, args...)
+	return strings.TrimSpace(out), err
+}
+
+// RunEnv is Run with extra environment variables, returning stdout untrimmed.
+func RunEnv(ctx context.Context, dir string, env []string, args ...string) (string, error) {
 	cmd := Command(ctx, "git", append([]string{"-C", dir}, args...)...)
+	cmd.Env = append(cmd.Env, env...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -62,7 +69,7 @@ func Run(ctx context.Context, dir string, args ...string) (string, error) {
 		}
 		return "", fmt.Errorf("git %s: %s", args[0], msg)
 	}
-	return strings.TrimSpace(string(out)), nil
+	return string(out), nil
 }
 
 // Toplevel returns the root of the repository containing dir.

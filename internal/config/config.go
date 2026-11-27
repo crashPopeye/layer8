@@ -19,6 +19,8 @@ type Config struct {
 	Apps        Apps   `json:"apps"`
 	// LinearClientID is the client id of the user's own Linear OAuth app; empty means API key only.
 	LinearClientID string `json:"linearClientId"`
+	// GitHubToken is used instead of `gh auth token` when set.
+	GitHubToken string `json:"githubToken"`
 }
 
 // Apps names the macOS applications a task's "open" action uses.

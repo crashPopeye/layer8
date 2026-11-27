@@ -50,6 +50,14 @@ describe("httpClient", () => {
     expect(JSON.parse(init!.body as string)).toEqual({ ops });
   });
 
+  it("reads other JSON endpoints with the token", async () => {
+    const fetch = fakeFetch(200, { files: [] });
+    expect(await httpClient(info).getJSON("/api/diff?task=task%3Ax&mode=all")).toEqual({ files: [] });
+    const [url, init] = fetch.mock.calls[0];
+    expect(url).toBe("http://127.0.0.1:7979/api/diff?task=task%3Ax&mode=all");
+    expect(init!.headers).toMatchObject({ Authorization: "Bearer s3cret" });
+  });
+
   it("throws the daemon's error message", async () => {
     fakeFetch(404, { error: "not found: task:nope" });
     await expect(httpClient(info).getNode("task:nope")).rejects.toThrow("not found: task:nope");

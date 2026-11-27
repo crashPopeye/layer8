@@ -1,6 +1,8 @@
-import { FileText, GitCompare, ListTree, MessageSquare, type LucideIcon } from "lucide-react";
+import { FileText, GitCompare, GitPullRequest, ListTree, MessageSquare, type LucideIcon } from "lucide-react";
 import { registerPanel } from "@/dock/registry";
 import { useFocus } from "@/lib/focus";
+import { ChangesPanel } from "./changes";
+import { PRPanel } from "./pr";
 import { ProjectsPanel } from "./projects";
 
 function placeholder(Icon: LucideIcon, what: string) {
@@ -31,10 +33,5 @@ registerPanel({
   component: placeholder(FileText, "The task tree's artifacts land here."),
   defaultPosition: "right",
 });
-registerPanel({
-  id: "changes",
-  title: "Changes",
-  icon: GitCompare,
-  component: placeholder(GitCompare, "The focused worktree's diff lands here."),
-  defaultPosition: "right-bottom",
-});
+registerPanel({ id: "pr", title: "PR", icon: GitPullRequest, component: PRPanel, defaultPosition: "right" });
+registerPanel({ id: "changes", title: "Changes", icon: GitCompare, component: ChangesPanel, defaultPosition: "right-bottom" });

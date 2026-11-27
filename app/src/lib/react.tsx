@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import type { Addr, Client, Depth, Node } from "./types";
+import type { Addr, Client, Depth, Node, Result } from "./types";
 
 const ClientContext = createContext<Client | null>(null);
 
@@ -43,4 +43,23 @@ export function useNode(addr: Addr, depth: Depth = 1): NodeState {
   }, [client, addr, depth]);
 
   return state;
+}
+
+/** Runs actions on addr one at a time, tracking which one is running and the last result. */
+export function useAction(addr: Addr) {
+  const client = useClient();
+  const [busy, setBusy] = useState<string | null>(null);
+  const [result, setResult] = useState<Result | null>(null);
+
+  async function run(action: string, args?: unknown): Promise<Result> {
+    setBusy(action);
+    const r = await client
+      .doOps([{ target: addr, action, args }])
+      .then(([r]) => r, (e: Error) => ({ ok: false, addr, message: e.message }));
+    setResult(r);
+    setBusy(null);
+    return r;
+  }
+
+  return { run, busy, result };
 }
