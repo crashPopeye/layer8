@@ -12,6 +12,7 @@ function PopoverContent({ className, sideOffset = 6, ...props }: React.Component
       <PopoverPrimitive.Content
         data-slot="popover-content"
         sideOffset={sideOffset}
+        collisionPadding={8}
         className={cn(
           menuSurface,
           "w-72 p-3",

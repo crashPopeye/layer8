@@ -84,6 +84,14 @@ func fakeCodex(logPath string) {
 			} else {
 				ok(map[string]any{"data": []any{map[string]any{"id": "gpt-5-mini", "model": "gpt-5-mini", "displayName": "GPT-5 mini", "description": "Cheap", "supportedReasoningEfforts": []any{}}}, "nextCursor": nil})
 			}
+		case "account/rateLimits/read":
+			if os.Getenv("FAKE_RATE_LIMITS") == "" {
+				out.Encode(map[string]any{"id": m.ID, "error": map[string]any{"code": -32600, "message": "codex account authentication required to read rate limits"}})
+				continue
+			}
+			ok(map[string]any{"rateLimits": map[string]any{"limitId": "codex",
+				"primary":   map[string]any{"usedPercent": 42, "windowDurationMins": 300, "resetsAt": 1764252000},
+				"secondary": map[string]any{"usedPercent": 18, "windowDurationMins": 10080, "resetsAt": 1764720000}}})
 		case "mcpServerStatus/list":
 			ok(map[string]any{"data": []any{
 				map[string]any{"name": "layer8", "authStatus": "bearerToken", "tools": map[string]any{}},
@@ -130,6 +138,10 @@ func fakeCodex(logPath string) {
 			case text == "ask":
 				active = true
 				out.Encode(map[string]any{"id": 103, "method": "item/tool/requestUserInput", "params": map[string]any{"itemId": "x"}})
+			case text == "limits":
+				notify("account/rateLimits/updated", map[string]any{"rateLimits": map[string]any{"primary": nil,
+					"secondary": map[string]any{"usedPercent": 19.5, "windowDurationMins": 10080, "resetsAt": 1764720000}}})
+				turnDone("t1", "completed")
 			case text == "slow":
 				active = true
 				notify("turn/started", map[string]any{"turn": map[string]any{"id": "t9"}})
@@ -274,6 +286,7 @@ func TestStartHandshakeAndThreadParams(t *testing.T) {
 		`{"id":2,"method":"skills/extraRoots/set","params":{"extraRoots":["/opt/layer8/plugin/skills","/tmp/extra/skills"]}}`,
 		`{"id":3,"method":"skills/list","params":{"cwds":["` + cwd + `"]}}`,
 		`{"id":4,"method":"thread/start","params":{"approvalPolicy":"on-request","config":{"mcp_servers":{"layer8":{"http_headers":{"Authorization":"Bearer tok","X-Layer8-Session":"9c41e0aa"},"url":"http://127.0.0.1:7979/mcp"}},"sandbox_workspace_write":{"writable_roots":["/home/a/.layer8/tasks/eng-482"]}},"cwd":"` + cwd + `","developerInstructions":"You run inside layer8.","model":"gpt-5","sandbox":"workspace-write"}}`,
+		`{"id":5,"method":"account/rateLimits/read","params":null}`,
 	}
 	if !slices.Equal(lines[1:], want) {
 		t.Fatalf("requests\n got %q\nwant %q", lines[1:], want)
@@ -390,8 +403,41 @@ func TestTurnEvents(t *testing.T) {
 	}
 	res, _ := json.Marshal(got[len(got)-1].Data)
 	if want := `{"contextTokens":1230,"contextWindow":272000,"costUsd":0,"durationMs":900,"isError":false,"result":"Hello","sessionId":"th-1","subtype":"success",` +
-		`"usage":{"total":{"totalTokens":5000},"last":{"inputTokens":1200,"cachedInputTokens":1000,"outputTokens":30,"totalTokens":1230},"modelContextWindow":272000}}`; string(res) != want {
+		`"tokens":{"input":200,"output":30,"cacheRead":1000,"cacheWrite":0},` +
+		`"usage":{"total":{"totalTokens":5000,"inputTokens":0,"cachedInputTokens":0,"cacheWriteInputTokens":0,"outputTokens":0},` +
+		`"last":{"totalTokens":1230,"inputTokens":1200,"cachedInputTokens":1000,"cacheWriteInputTokens":0,"outputTokens":30},"modelContextWindow":272000}}`; string(res) != want {
 		t.Fatalf("result\n got %s\nwant %s", res, want)
+	}
+}
+
+func TestRateLimits(t *testing.T) {
+	h, _ := fake(t, "FAKE_RATE_LIMITS=1")
+	rec := newRecorder(nil)
+	p := start(t, h, rec, harness.StartOptions{})
+	limits := func() []harness.Limit {
+		got := rec.until(t, harness.EventLimits, 5*time.Second)
+		return got[len(got)-1].Data["limits"].([]harness.Limit)
+	}
+	want := []harness.Limit{{Window: "5h", UsedPercent: 42, ResetsAt: 1764252000}, {Window: "weekly", UsedPercent: 18, ResetsAt: 1764720000}}
+	if got := limits(); !slices.Equal(got, want) {
+		t.Fatalf("read limits = %v, want %v", got, want)
+	}
+	p.Send(harness.UserMessage{Text: "limits"})
+	want = []harness.Limit{{Window: "weekly", UsedPercent: 19.5, ResetsAt: 1764720000}}
+	if got := limits(); !slices.Equal(got, want) {
+		t.Fatalf("updated limits = %v, want %v", got, want)
+	}
+}
+
+func TestWindowName(t *testing.T) {
+	minutes := func(n int) *int { return &n }
+	for _, c := range []struct {
+		minutes *int
+		want    string
+	}{{minutes(300), "5h"}, {minutes(10080), "weekly"}, {minutes(43200), "30d"}, {minutes(45), "45m"}, {nil, "primary"}} {
+		if got := windowName(c.minutes, "primary"); got != c.want {
+			t.Errorf("windowName(%v) = %q, want %q", c.minutes, got, c.want)
+		}
 	}
 }
 

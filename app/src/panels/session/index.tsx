@@ -7,11 +7,9 @@ import { taskOf, useFocus } from "@/lib/focus";
 import { useClient, useNode } from "@/lib/react";
 import type { Addr, Node } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { walk } from "@/panels/tasks/tree";
-import { useTree } from "@/panels/tasks/use-tree";
 import { Composer } from "./composer";
 import { empty, isQueued, reduceAll, type SessionEvent, type Transcript } from "./model";
-import { latest, pickSession, useDraft } from "./target";
+import { pickSession, useShownSession } from "./target";
 import { ItemView, type Answer } from "./transcript";
 
 const page = 1000;
@@ -219,13 +217,8 @@ function SessionNode({ addr, task }: { addr: Addr; task: Addr }) {
 
 /** The focused session's live transcript, approvals and composer; a new-session composer when the task has none or ⌘T asked for one. */
 export function SessionPanel() {
-  const focus = useFocus();
-  const task = taskOf(focus);
-  const draft = useDraft();
-  const { tree } = useTree();
+  const { task, session, sessions } = useShownSession();
   if (!task) return <p className="p-3 text-muted-foreground">Focus a task to see its sessions.</p>;
-  const sessions = walk(tree).find((i) => i.addr === task)?.sessions ?? [];
-  const session = focus.startsWith("session:") ? focus : draft === task ? null : (latest(sessions)?.addr ?? null);
 
   return (
     <div className="flex h-full flex-col">

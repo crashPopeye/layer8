@@ -143,7 +143,7 @@ func TestMCPReadAndDo(t *testing.T) {
 	for _, r := range list["resources"].([]any) {
 		uris += r.(map[string]any)["uri"].(string) + " "
 	}
-	if uris != "layer8://app layer8://here layer8://project/api-gateway layer8://workflow/feature layer8://workflow/pr-care layer8://workflow/product-feature layer8://workflow/quick-fix layer8://ui/layout layer8://ui/theme layer8://ui/plugins " {
+	if uris != "layer8://app layer8://here layer8://project/api-gateway layer8://usage layer8://workflow/feature layer8://workflow/pr-care layer8://workflow/product-feature layer8://workflow/quick-fix layer8://ui/layout layer8://ui/theme layer8://ui/plugins " {
 		t.Fatalf("resources = %q", uris)
 	}
 

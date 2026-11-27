@@ -478,3 +478,46 @@ func TestCapabilitiesAreCached(t *testing.T) {
 		t.Fatalf("probes = %d, want 1", n)
 	}
 }
+
+func TestUsageNode(t *testing.T) {
+	e := newEnv(t, sessions.Options{})
+	s, p := e.start(`{"prompt":"hi","title":"research"}`)
+	recv(t, p.sent)
+	p.sink.OnEvent(harness.Event{Type: harness.EventLimits, Data: map[string]any{"limits": []harness.Limit{
+		{Window: "5h", UsedPercent: 42, ResetsAt: 1764252000}, {Window: "weekly", UsedPercent: 18, ResetsAt: 1764720000}}}})
+	p.sink.OnEvent(harness.Event{Type: harness.EventLimits, Data: map[string]any{"limits": []harness.Limit{{Window: "weekly", UsedPercent: 19, ResetsAt: 1764720000}}}})
+	for range 2 {
+		p.sink.OnEvent(harness.Event{Type: harness.EventResult, Data: map[string]any{"sessionId": "h-1", "contextTokens": 370, "contextWindow": 200000,
+			"tokens": harness.Tokens{Input: 10, Output: 20, CacheRead: 300, CacheWrite: 40}}})
+	}
+	if n := e.waitStatus(s, "idle"); n.Fields["contextWindow"] != 200000 {
+		t.Fatalf("contextWindow = %v", n.Fields["contextWindow"])
+	}
+	if got := e.eventTypes(s); !slices.Equal(got, []string{"user", "result", "result"}) {
+		t.Fatalf("stored events = %v, want limits kept out of the transcript", got)
+	}
+	if !slices.ContainsFunc(e.get("app").Children, func(c tree.Summary) bool { return c.Addr == "usage" }) {
+		t.Fatal("usage is not a child of app")
+	}
+	raw, _ := json.Marshal(e.get("usage").Fields)
+	var u struct {
+		Limits []struct {
+			Harness, Window string
+			UsedPercent     float64
+			ResetsAt        int64
+		}
+		Today []struct {
+			Session, Task, Title, Harness        string
+			Input, Output, CacheRead, CacheWrite int
+		}
+	}
+	json.Unmarshal(raw, &u)
+	if len(u.Limits) != 2 || u.Limits[0].Harness != "claude" || u.Limits[0].Window != "5h" || u.Limits[0].UsedPercent != 42 ||
+		u.Limits[1].Window != "weekly" || u.Limits[1].UsedPercent != 19 || u.Limits[1].ResetsAt != 1764720000 {
+		t.Fatalf("limits = %s", raw)
+	}
+	if len(u.Today) != 1 || u.Today[0].Session != string(s) || u.Today[0].Task != string(e.task) || u.Today[0].Title != "research" ||
+		u.Today[0].Input != 20 || u.Today[0].Output != 40 || u.Today[0].CacheRead != 600 || u.Today[0].CacheWrite != 80 {
+		t.Fatalf("today = %s", raw)
+	}
+}

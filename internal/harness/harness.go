@@ -73,6 +73,7 @@ const (
 	EventResult     EventType = "result"
 	EventError      EventType = "error"
 	EventSystem     EventType = "system"
+	EventLimits     EventType = "limits"
 )
 
 // Event is one transcript entry. Partial events are live fragments, such as text
@@ -81,6 +82,22 @@ type Event struct {
 	Type    EventType      `json:"type"`
 	Partial bool           `json:"partial,omitempty"`
 	Data    map[string]any `json:"data"`
+}
+
+// Tokens counts the tokens one turn used. Input excludes cached input.
+type Tokens struct {
+	Input      int `json:"input"`
+	Output     int `json:"output"`
+	CacheRead  int `json:"cacheRead"`
+	CacheWrite int `json:"cacheWrite"`
+}
+
+// Limit is how much of one account rate-limit window, such as "5h" or "weekly", is used.
+// ResetsAt is in Unix seconds. EventLimits carries them as Data["limits"].
+type Limit struct {
+	Window      string  `json:"window"`
+	UsedPercent float64 `json:"usedPercent"`
+	ResetsAt    int64   `json:"resetsAt,omitempty"`
 }
 
 // PermissionRequest asks whether the agent may run a tool.

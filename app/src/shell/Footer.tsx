@@ -2,6 +2,7 @@ import { useClient } from "@/lib/react";
 import { sessionCounts } from "@/panels/tasks/tree";
 import { useTree } from "@/panels/tasks/use-tree";
 import { cn } from "@/lib/utils";
+import { UsageMonitor } from "./UsageMonitor";
 
 const shortcuts = [
   ["⌘K", "everything"],
@@ -24,6 +25,7 @@ export function Footer() {
         </span>
       ))}
       <span className="flex-1" />
+      <UsageMonitor />
       <span className={cn(waiting > 0 && "text-wait")}>
         {running} running · {waiting} waiting · {queued} queued
       </span>

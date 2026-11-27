@@ -91,6 +91,8 @@ func run(logPath string) {
 			case text == "hello":
 				out.Encode(map[string]any{"type": "system", "subtype": "init", "session_id": "s1", "skills": []string{"review"}, "mcp_servers": []any{map[string]any{"name": "layer8", "status": "connected"}}})
 				out.Encode(map[string]any{"type": "system", "subtype": "status", "status": "requesting"})
+				out.Encode(map[string]any{"type": "rate_limit_event", "session_id": "s1", "rate_limit_info": map[string]any{"status": "allowed", "unifiedWindows": map[string]any{
+					"five_hour": map[string]any{"utilization": 0.42, "resetsAt": 1764252000}, "seven_day": map[string]any{"utilization": 0.18, "resetsAt": 1764720000}}}})
 				for _, d := range []string{"Hel", "lo"} {
 					out.Encode(map[string]any{"type": "stream_event", "parent_tool_use_id": nil, "event": map[string]any{"type": "content_block_delta", "delta": map[string]any{"type": "text_delta", "text": d}}})
 				}
@@ -98,7 +100,8 @@ func run(logPath string) {
 					"content": []any{map[string]any{"type": "thinking", "thinking": ""}, map[string]any{"type": "text", "text": "Hello"}},
 					"usage":   map[string]int{"input_tokens": 2, "cache_creation_input_tokens": 100, "cache_read_input_tokens": 1000, "output_tokens": 8}}})
 				out.Encode(map[string]any{"type": "result", "subtype": "success", "is_error": false, "result": "Hello", "session_id": "s1",
-					"total_cost_usd": 0.0125, "duration_ms": 900, "num_turns": 1, "usage": map[string]int{"output_tokens": 8}})
+					"total_cost_usd": 0.0125, "duration_ms": 900, "num_turns": 1, "usage": map[string]int{"input_tokens": 2, "cache_creation_input_tokens": 100, "cache_read_input_tokens": 1000, "output_tokens": 8},
+					"modelUsage": map[string]any{"claude-opus-5-5": map[string]int{"contextWindow": 200000}, "claude-haiku-5-5": map[string]int{"contextWindow": 100000}}})
 			case text == "write":
 				out.Encode(map[string]any{"type": "assistant", "parent_tool_use_id": nil, "message": map[string]any{"content": []any{
 					map[string]any{"type": "tool_use", "id": "tu1", "name": "Write", "input": map[string]string{"file_path": "a.txt"}}}}})

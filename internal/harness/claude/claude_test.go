@@ -151,7 +151,7 @@ func TestTurnEvents(t *testing.T) {
 		}
 		summary = append(summary, s)
 	}
-	want := []string{"system:init", "system~:status", "text~:Hel", "text~:lo", "text:Hello", "result"}
+	want := []string{"system:init", "system~:status", "limits", "text~:Hel", "text~:lo", "text:Hello", "result"}
 	if !slices.Equal(summary, want) {
 		t.Fatalf("events\n got %v\nwant %v", summary, want)
 	}
@@ -160,8 +160,35 @@ func TestTurnEvents(t *testing.T) {
 		t.Fatalf("init data = %v", init)
 	}
 	res := got[len(got)-1].Data
-	if res["costUsd"] != 0.0125 || res["contextTokens"] != 1110 || res["sessionId"] != "s1" || res["numTurns"] != 1 || res["isError"] != false {
+	if res["costUsd"] != 0.0125 || res["contextTokens"] != 1110 || res["sessionId"] != "s1" || res["numTurns"] != 1 || res["isError"] != false ||
+		res["contextWindow"] != 200000 || res["tokens"] != (harness.Tokens{Input: 2, Output: 8, CacheRead: 1000, CacheWrite: 100}) {
 		t.Fatalf("result data = %v", res)
+	}
+	limits := []harness.Limit{{Window: "5h", UsedPercent: 42, ResetsAt: 1764252000}, {Window: "weekly", UsedPercent: 18, ResetsAt: 1764720000}}
+	if got := got[2].Data["limits"].([]harness.Limit); !slices.Equal(got, limits) {
+		t.Fatalf("limits = %v", got)
+	}
+}
+
+func TestRateLimitInfo(t *testing.T) {
+	for _, c := range []struct {
+		name, info string
+		want       []harness.Limit
+	}{
+		{"single window", `{"status":"allowed_warning","rateLimitType":"seven_day","utilization":0.9,"resetsAt":1764720000}`,
+			[]harness.Limit{{Window: "weekly", UsedPercent: 90, ResetsAt: 1764720000}}},
+		{"rejected without utilization", `{"status":"rejected","rateLimitType":"five_hour","resetsAt":1764252000}`,
+			[]harness.Limit{{Window: "5h", UsedPercent: 100, ResetsAt: 1764252000}}},
+		{"allowed without utilization", `{"status":"allowed"}`, nil},
+		{"overage is not a window", `{"status":"allowed","rateLimitType":"overage","utilization":0.5}`, nil},
+	} {
+		var r rateLimitInfo
+		if err := json.Unmarshal([]byte(c.info), &r); err != nil {
+			t.Fatal(err)
+		}
+		if got := r.limits(); !slices.Equal(got, c.want) {
+			t.Errorf("%s: limits = %v, want %v", c.name, got, c.want)
+		}
 	}
 }
 

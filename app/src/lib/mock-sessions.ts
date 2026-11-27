@@ -180,6 +180,7 @@ export function mockSessions(send: (e: L8Event) => void, delay = 120) {
         status: s.status,
         costUsd: s.cost,
         contextTokens: 41200,
+        contextWindow: 200000,
         capabilities: {
           mcpServers: [
             { name: "layer8", status: "connected" },

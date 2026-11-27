@@ -80,6 +80,7 @@ func (p *proc) open(ctx context.Context, o harness.StartOptions) error {
 		names = append(names, s.Name)
 	}
 	p.emit(harness.EventSystem, false, map[string]any{"subtype": "init", "session_id": p.thread, "model": r.Model, "cwd": o.Cwd, "skills": names})
+	p.readLimits()
 	return nil
 }
 
@@ -187,9 +188,10 @@ type proc struct {
 	turn  string
 	queue []harness.UserMessage
 
-	tools map[string]toolCall
-	text  string
-	usage tokenUsage
+	tools   map[string]toolCall
+	text    string
+	usage   tokenUsage
+	counted breakdown
 }
 
 // Send starts a turn with msg, or queues it until the current turn completes.
