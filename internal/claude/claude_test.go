@@ -198,3 +198,11 @@ func TestCleanEnv(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+func TestArgsGiveTheSessionLayer8(t *testing.T) {
+	a := Args(Options{MCP: &MCPServer{Name: "layer8", URL: "http://127.0.0.1:7878/api/mcp", Headers: map[string]string{"Authorization": "Bearer t"}}})
+	joined := strings.Join(a, " ")
+	if !strings.Contains(joined, `--mcp-config={"mcpServers":{"layer8":{"headers":{"Authorization":"Bearer t"},"type":"http","url":"http://127.0.0.1:7878/api/mcp"}}}`) || !strings.Contains(joined, "--allowedTools=mcp__layer8__look") {
+		t.Fatal(joined)
+	}
+}

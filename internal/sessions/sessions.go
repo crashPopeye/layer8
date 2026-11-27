@@ -39,6 +39,7 @@ type Launch struct {
 	Model              string
 	Effort             string
 	PermissionMode     string
+	MCP                *claude.MCPServer
 }
 
 type live struct {
@@ -217,7 +218,7 @@ func (m *Manager) startTurn(sessionID, prompt string, l *live) {
 		}
 		proc, err = m.start(ln.Harness, claude.Options{
 			Cwd: ln.Cwd, Resume: s.ClaudeSessionID, AddDirs: ln.AddDirs,
-			AppendSystemPrompt: ln.AppendSystemPrompt, Model: ln.Model, Effort: ln.Effort, PermissionMode: ln.PermissionMode,
+			AppendSystemPrompt: ln.AppendSystemPrompt, Model: ln.Model, Effort: ln.Effort, PermissionMode: ln.PermissionMode, MCP: ln.MCP,
 		}, m.handlers(sessionID, l))
 		if err != nil {
 			fail(err)

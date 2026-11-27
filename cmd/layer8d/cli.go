@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -189,6 +190,35 @@ func runCLI(args []string) error {
 	}
 	cmd, args := args[0], args[1:]
 	switch cmd {
+	case "look":
+		var out struct{ Text string }
+		ref := ""
+		if len(args) > 0 {
+			ref = args[0]
+		}
+		if err := x.do(http.MethodGet, "/api/look?format=text&ref="+url.QueryEscape(ref), nil, &out); err != nil {
+			return err
+		}
+		fmt.Print(out.Text)
+		return nil
+	case "act":
+		if err := need(args, 2, "act REF VERB [key=value...]"); err != nil {
+			return err
+		}
+		in := map[string]string{}
+		for _, kv := range args[2:] {
+			k, v, ok := strings.Cut(kv, "=")
+			if !ok {
+				return fmt.Errorf("argument %q: use key=value", kv)
+			}
+			in[k] = v
+		}
+		var out struct{ Text string }
+		if err := x.do(http.MethodPost, "/api/act", map[string]any{"ref": args[0], "verb": args[1], "args": in}, &out); err != nil {
+			return err
+		}
+		fmt.Println(out.Text)
+		return nil
 	case "status":
 		s, err := x.state()
 		if err != nil {

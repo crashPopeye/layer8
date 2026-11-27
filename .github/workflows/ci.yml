@@ -28,6 +28,8 @@ jobs:
         run: go vet ./...
       - name: test
         run: go test -race ./...
+      - name: ui layout test
+        run: node build/layout_test.mjs
 
       - name: Rust targets
         run: rustup target add aarch64-apple-darwin x86_64-apple-darwin

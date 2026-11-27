@@ -6,27 +6,56 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/crashPopeye/layer8/internal/claude"
 	"github.com/crashPopeye/layer8/internal/codex"
 )
 
-// Capabilities lists the models and commands a harness offers in a task's worktree.
-// It asks the harness each time, so skills added since show up.
+type capsEntry struct {
+	mu      sync.Mutex
+	caps    *claude.Capabilities
+	fetched time.Time
+}
+
+// Capabilities lists the models, commands and skills a harness offers in a task's
+// worktree. The first call asks the harness; later ones answer from the cache at once
+// and refresh it in the background at most once a minute, so new skills still show up.
 func (a *App) Capabilities(ctx context.Context, harness, taskID string) (claude.Capabilities, error) {
 	t, err := a.Store.Task(taskID)
 	if err != nil {
 		return claude.Capabilities{}, err
 	}
-	switch harness {
-	case "claude":
-		return claude.Probe(ctx, "", t.WorktreePath)
-	case "codex":
-		return codex.Probe(ctx, "", t.WorktreePath)
-	default:
+	probe := map[string]func(context.Context, string, string) (claude.Capabilities, error){"claude": claude.Probe, "codex": codex.Probe}[harness]
+	if probe == nil {
 		return claude.Capabilities{}, fmt.Errorf("unknown harness %q", harness)
 	}
+	v, _ := a.caps.LoadOrStore(harness+"\x00"+t.WorktreePath, &capsEntry{})
+	e := v.(*capsEntry)
+	fetch := func(ctx context.Context) (claude.Capabilities, error) {
+		c, err := probe(ctx, "", t.WorktreePath)
+		if err == nil {
+			e.caps, e.fetched = &c, time.Now()
+		}
+		return c, err
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.caps == nil {
+		return fetch(ctx)
+	}
+	if time.Since(e.fetched) > time.Minute {
+		e.fetched = time.Now()
+		go func() {
+			ctx, cancel := context.WithTimeout(a.ctx, 30*time.Second)
+			defer cancel()
+			e.mu.Lock()
+			defer e.mu.Unlock()
+			_, _ = fetch(ctx)
+		}()
+	}
+	return *e.caps, nil
 }
 
 // Attach saves a file in the task's artifacts, where agents can read it, and returns its path.
