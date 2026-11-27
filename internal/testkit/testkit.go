@@ -21,6 +21,7 @@ type Env struct {
 	T      *testing.T
 	Tree   *tree.Tree
 	DB     *sql.DB
+	Tasks  *tasks.Service
 	Home   string
 	Repo   string
 	Origin string
@@ -70,7 +71,7 @@ func New(t *testing.T, files map[string]string, register func(*Env)) *Env {
 	t.Cleanup(func() { db.Close() })
 	e.DB, e.Tree = db, tree.New(db)
 	projects.Register(e.Tree, db, "test")
-	tasks.Register(e.Tree, db, tasks.Options{Home: e.Home})
+	e.Tasks = tasks.Register(e.Tree, db, tasks.Options{Home: e.Home})
 	register(e)
 	e.OK("app", "add-project", map[string]any{"path": e.Repo})
 	return e

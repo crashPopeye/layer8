@@ -1,13 +1,15 @@
-import { FileText, FolderTree, GitCompare, GitPullRequest, ListTree, MessageSquare } from "lucide-react";
+import { FileText, FolderTree, GitCompare, GitPullRequest, ListTree, MessageSquare, Ticket } from "lucide-react";
 import { registerPanel } from "@/dock/registry";
 import { ArtifactsPanel } from "./artifacts";
 import { ChangesPanel } from "./changes";
 import { FilesPanel } from "./files";
+import { LinearPanel } from "./linear";
 import { PRPanel } from "./pr";
 import { SessionPanel } from "./session";
 import { TasksPanel } from "./tasks/panel";
 
 registerPanel({ id: "tasks", title: "Tasks", icon: ListTree, component: TasksPanel, defaultPosition: "left" });
+registerPanel({ id: "linear", title: "Linear", icon: Ticket, component: LinearPanel, defaultPosition: "left" });
 registerPanel({
   id: "session",
   title: "Session",

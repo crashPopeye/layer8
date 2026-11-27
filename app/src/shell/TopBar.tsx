@@ -6,9 +6,13 @@ import { openPanel } from "@/dock/Dock";
 import { panels } from "@/dock/registry";
 import { crumbTrail, type Crumb } from "@/lib/crumbs";
 import { crumbs, setFocus, useFocus } from "@/lib/focus";
-import { useClient } from "@/lib/react";
+import { useClient, useNode } from "@/lib/react";
+import { openUrl } from "@/lib/tauri";
+import type { Addr } from "@/lib/types";
 import { setTheme, storedTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
+import { linkOf, pillOf, rootOf } from "@/panels/linear/model";
+import { toneText } from "@/panels/pr/model";
 import { WorkflowControl } from "./Workflow";
 
 /** Returns the breadcrumb of addr with node titles, falling back to address segments until they load. */
@@ -26,6 +30,24 @@ function useCrumbs(addr: string): Crumb[] {
     };
   }, [client, addr]);
   return trail?.addr === addr ? trail.crumbs : crumbs(addr).map((title) => ({ addr, title }));
+}
+
+/** The Linear issue of the task at addr, or of its root task, as a pill that opens it in Linear. */
+function LinearPill({ addr }: { addr: Addr }) {
+  const own = linkOf(useNode(addr, 0).node);
+  const root = linkOf(useNode(rootOf(addr), 0).node);
+  const link = own ?? root;
+  if (!link) return null;
+  const pill = pillOf(link);
+  return (
+    <button
+      className={cn("rounded-full border px-2 py-0.5 font-mono text-[11px] hover:bg-muted", toneText[pill.tone])}
+      title={`${link.title} — open in Linear`}
+      onClick={() => openUrl(link.url)}
+    >
+      {pill.text}
+    </button>
+  );
 }
 
 /** The window's title bar: breadcrumb of the focused node, panel launchers, theme switch and ⌘K. */
@@ -60,6 +82,7 @@ export function TopBar() {
           </Fragment>
         ))}
       </nav>
+      {focus.startsWith("task:") && <LinearPill key={focus} addr={focus} />}
       <div data-tauri-drag-region className="flex-1 self-stretch" />
       <WorkflowControl />
       {panels().map(({ id, title, icon: Icon }) => (

@@ -42,6 +42,15 @@ Everything is a node with an address (`app`, `project:api-gateway`, `task:eng-48
 - **API key (default):** create one in Linear → Settings → Security & access → Personal API keys, then `layer8 do linear connect apiKey=lin_api_…`.
 - **Sign in with Linear (optional):** create your own OAuth app in Linear → Settings → API → OAuth applications with callback URL `http://127.0.0.1:7979/api/linear/callback`, put its client id in `~/.layer8/config.json` as `"linearClientId"`, restart the daemon, then `layer8 do linear connect-oauth` and open the returned URL. PKCE is used, so no client secret is stored.
 
+Tasks link to issues, they don't mirror them. A linked task's `linear` field is `{id, url, title, state}`; its state is re-read from Linear at most once a minute when the task is read.
+
+| Action | On | Does |
+|---|---|---|
+| `create-task-from-linear {issue}` | project | task titled like the issue, branch = Linear's branch name, `01-ticket.md` in the artifacts, linked |
+| `link-linear {issue}` / `refresh-linear` / `unlink-linear` | task | set, re-read or clear the link; root tasks (re)write `01-ticket.md` |
+| `create-subtask {…, linear: true}` | task | also creates a Linear sub-issue under the task's issue and links the sub-task to it |
+| `open-pr` | linked task | also attaches the pull request to the issue; a Linear failure is reported in the message, the PR still opens |
+
 ## Develop
 
 ```sh

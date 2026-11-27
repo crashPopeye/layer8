@@ -168,6 +168,20 @@ func (s *Service) Lookup(ctx context.Context, addr tree.Addr) (Task, error) {
 	return list[0], nil
 }
 
+// SetLinear stores the task's Linear link; nil clears it.
+func (s *Service) SetLinear(ctx context.Context, addr tree.Addr, link json.RawMessage) error {
+	t, err := s.Lookup(ctx, addr)
+	if err != nil {
+		return err
+	}
+	var value any
+	if link != nil {
+		value = string(link)
+	}
+	_, err = s.db.ExecContext(ctx, `UPDATE tasks SET linear = ? WHERE id = ?`, value, t.ID)
+	return err
+}
+
 // subtree returns the task with slug and all its descendants.
 func (s *Service) subtree(ctx context.Context, slug string) ([]Task, error) {
 	return s.query(ctx, `WHERE t.slug = ? OR t.slug LIKE ? || '--%' ORDER BY t.slug`, slug, slug)
