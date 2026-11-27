@@ -31,13 +31,13 @@ const info = { url: "http://127.0.0.1:7979/", token: "s3cret" };
 afterEach(() => vi.unstubAllGlobals());
 
 describe("httpClient", () => {
-  it("reads a node with the token and depth", async () => {
+  it("reads a node with the token, the user actor and depth", async () => {
     const node = { addr: "project:api", kind: "project", title: "api", fields: {}, children: [], actions: [] };
     const fetch = fakeFetch(200, node);
     expect(await httpClient(info).getNode("project:api", 2)).toEqual(node);
     const [url, init] = fetch.mock.calls[0];
     expect(url).toBe("http://127.0.0.1:7979/api/node?addr=project%3Aapi&depth=2");
-    expect((init!.headers as Record<string, string>).Authorization).toBe("Bearer s3cret");
+    expect(init!.headers).toMatchObject({ Authorization: "Bearer s3cret", "X-Layer8-Actor": "user" });
   });
 
   it("posts ops and returns their results", async () => {
@@ -51,8 +51,8 @@ describe("httpClient", () => {
   });
 
   it("throws the daemon's error message", async () => {
-    fakeFetch(404, { error: "no node at task:nope" });
-    await expect(httpClient(info).getNode("task:nope")).rejects.toThrow("no node at task:nope");
+    fakeFetch(404, { error: "not found: task:nope" });
+    await expect(httpClient(info).getNode("task:nope")).rejects.toThrow("not found: task:nope");
   });
 
   it("delivers typed SSE events and closes the stream after the last listener", () => {
@@ -63,10 +63,10 @@ describe("httpClient", () => {
     const es = FakeEventSource.last;
     expect(es.url).toBe("http://127.0.0.1:7979/api/events?token=s3cret");
 
-    es.send("node", { addrs: ["app"] });
+    es.send("node", { addrs: ["app", "project:api"] });
     es.send("ui", { verb: "open-panel", panel: "changes" });
     expect(seen).toEqual([
-      { type: "node", data: { addrs: ["app"] } },
+      { type: "node", data: { addrs: ["app", "project:api"] } },
       { type: "ui", data: { verb: "open-panel", panel: "changes" } },
     ]);
 

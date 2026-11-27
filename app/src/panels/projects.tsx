@@ -18,7 +18,7 @@ export function ProjectsPanel() {
     if (!path) return;
     const [result] = await client.doOps([{ target: "app", action: "add-project", args: { path } }]);
     setMessage(result.ok ? null : (result.message ?? "add-project failed"));
-    if (result.ok && result.addr) setFocus(result.addr);
+    if (result.ok) setFocus(result.addr);
   }
 
   return (

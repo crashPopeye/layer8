@@ -6,6 +6,7 @@ export interface Summary {
   kind: string;
   title: string;
   status?: string;
+  children?: Summary[];
 }
 
 export interface Action {
@@ -18,7 +19,7 @@ export interface Node {
   addr: Addr;
   kind: string;
   title: string;
-  fields: Record<string, unknown>;
+  fields?: Record<string, unknown>;
   children: Summary[];
   actions: Action[];
 }
@@ -31,7 +32,7 @@ export interface Op {
 
 export interface Result {
   ok: boolean;
-  addr?: Addr;
+  addr: Addr;
   message?: string;
   data?: unknown;
 }
@@ -50,11 +51,14 @@ export type L8Event =
 
 export const eventTypes = ["node", "session", "ui", "toast"] as const;
 
+/** How many levels of children a read includes: none, direct, or grandchildren too. */
+export type Depth = 0 | 1 | 2;
+
 /** The UI's view of the daemon: read nodes, run actions, follow events. */
 export interface Client {
   mode: "daemon" | "mock";
   label: string;
-  getNode(addr: Addr, depth?: number): Promise<Node>;
+  getNode(addr: Addr, depth?: Depth): Promise<Node>;
   doOps(ops: Op[]): Promise<Result[]>;
   subscribe(listener: (e: L8Event) => void): () => void;
 }

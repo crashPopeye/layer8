@@ -8,7 +8,7 @@ export interface DaemonInfo {
 /** Returns a Client that talks to a running layer8d over HTTP and SSE. */
 export function httpClient({ url, token }: DaemonInfo): Client {
   const base = url.replace(/\/$/, "");
-  const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
+  const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json", "X-Layer8-Actor": "user" };
   const listeners = new Set<(e: L8Event) => void>();
   let source: EventSource | null = null;
 

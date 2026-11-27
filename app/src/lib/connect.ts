@@ -12,13 +12,13 @@ export async function daemonInfo(): Promise<DaemonInfo | null> {
   return url && token ? { url, token } : null;
 }
 
+/** Reports whether a layer8d answers `/api/version` at url. */
+async function reachable(url: string): Promise<boolean> {
+  return fetch(new URL("/api/version", url)).then((r) => r.ok, () => false);
+}
+
 /** Returns a daemon Client when one answers, and the in-memory mock otherwise. */
 export async function connect(): Promise<Client> {
   const info = await daemonInfo();
-  if (info) {
-    const client = httpClient(info);
-    const reachable = await client.getNode("app", 0).then(() => true, () => false);
-    if (reachable) return client;
-  }
-  return mockClient();
+  return info && (await reachable(info.url)) ? httpClient(info) : mockClient();
 }

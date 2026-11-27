@@ -41,3 +41,5 @@ make test     # go test ./...
 make daemon   # bin/layer8d + bin/layer8
 make dev      # run the daemon from source with LAYER8_HOME=./.dev-home
 ```
+
+The UI runs in a browser against `make dev`: `cd app && npm i && npm run dev`, then open `http://localhost:5173/?url=http://127.0.0.1:7979&token=$(cat .dev-home/token)`. Without a reachable daemon it falls back to an in-memory mock. `npm run tauri dev` opens it in the Tauri window.

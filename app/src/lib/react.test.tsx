@@ -19,5 +19,5 @@ it("useNode reports a missing node as an error", async () => {
   const client = mockClient();
   const wrapper = ({ children }: { children: ReactNode }) => <ClientProvider client={client}>{children}</ClientProvider>;
   const { result } = renderHook(() => useNode("project:nope"), { wrapper });
-  await waitFor(() => expect(result.current.error?.message).toBe("no node at project:nope"));
+  await waitFor(() => expect(result.current.error?.message).toBe("not found: project:nope"));
 });

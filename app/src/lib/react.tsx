@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import type { Addr, Client, Node } from "./types";
+import type { Addr, Client, Depth, Node } from "./types";
 
 const ClientContext = createContext<Client | null>(null);
 
@@ -21,7 +21,7 @@ export interface NodeState {
 }
 
 /** Reads the node at addr and reads it again whenever a `node` event names it. */
-export function useNode(addr: Addr, depth = 1): NodeState {
+export function useNode(addr: Addr, depth: Depth = 1): NodeState {
   const client = useClient();
   const [state, setState] = useState<NodeState>({ node: null, error: null });
 
