@@ -1,6 +1,7 @@
 package store
 
 import (
+	"database/sql"
 	"path/filepath"
 	"testing"
 )
@@ -28,5 +29,31 @@ func TestOpenMigratesOnceAndReopens(t *testing.T) {
 			}
 		}
 		db.Close()
+	}
+}
+
+func TestOpenSetsALegacyDatabaseAside(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "layer8.db")
+	old, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := old.Exec(`CREATE TABLE projects (id INTEGER PRIMARY KEY, title TEXT)`); err != nil {
+		t.Fatal(err)
+	}
+	old.Close()
+
+	db, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`SELECT default_branch FROM projects`); err != nil {
+		t.Fatalf("fresh schema: %v", err)
+	}
+	legacy, _ := sql.Open("sqlite", "file:"+path+".legacy")
+	defer legacy.Close()
+	if _, err := legacy.Exec(`SELECT title FROM projects`); err != nil {
+		t.Fatalf("legacy database kept: %v", err)
 	}
 }

@@ -28,7 +28,7 @@ func TestSkillsUseActionsTheTreeHas(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	tr, _ := build(t.Context(), config.Config{Home: home, Addr: "127.0.0.1:0"}, db, "tok", "test")
+	tr, _ := build(t.Context(), config.Config{Home: home, Addr: "127.0.0.1:0"}, db, "tok", "test", func() {})
 	actions := map[string]bool{}
 	for _, kind := range tr.Kinds() {
 		for _, a := range tr.Actions(kind) {

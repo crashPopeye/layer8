@@ -4,6 +4,8 @@ package store
 import (
 	"database/sql"
 	"fmt"
+	"log/slog"
+	"os"
 
 	_ "modernc.org/sqlite"
 )
@@ -118,7 +120,11 @@ var migrations = []string{
 }
 
 // Open opens the database at path and applies pending migrations.
+// A database left by an older layer8, with tables but no schema version, is moved to path.legacy first.
 func Open(path string) (*sql.DB, error) {
+	if err := setAsideLegacy(path); err != nil {
+		return nil, err
+	}
 	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)")
 	if err != nil {
 		return nil, err
@@ -129,6 +135,29 @@ func Open(path string) (*sql.DB, error) {
 		return nil, err
 	}
 	return db, nil
+}
+
+func setAsideLegacy(path string) error {
+	if _, err := os.Stat(path); err != nil {
+		return nil
+	}
+	db, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		return err
+	}
+	var version, tables int
+	err = db.QueryRow(`SELECT (SELECT user_version FROM pragma_user_version), (SELECT count(*) FROM sqlite_master WHERE type = 'table')`).Scan(&version, &tables)
+	db.Close()
+	if err != nil || version > 0 || tables == 0 {
+		return err
+	}
+	for _, suffix := range []string{"", "-wal", "-shm"} {
+		if err := os.Rename(path+suffix, path+".legacy"+suffix); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	slog.Warn("moved a database from an older layer8 aside", "path", path+".legacy")
+	return nil
 }
 
 func migrate(db *sql.DB) error {

@@ -11,6 +11,7 @@ import { Footer } from "@/shell/Footer";
 import { Palette, togglePalette } from "@/shell/Palette";
 import { Toasts } from "@/shell/Toasts";
 import { TopBar } from "@/shell/TopBar";
+import { UpdatePrompt } from "@/shell/UpdatePrompt";
 
 /** The main window: title bar, dock of panels, status bar, ⌘K palette and notifications. */
 export function App() {
@@ -43,6 +44,7 @@ export function App() {
       <ActionDialog />
       <Palette />
       <Toasts />
+      <UpdatePrompt />
     </div>
   );
 }

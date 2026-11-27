@@ -7,7 +7,7 @@
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173",
     "beforeDevCommand": "npm run sidecar && npm run dev",
-    "beforeBuildCommand": "npm run sidecar && npm run build"
+    "beforeBuildCommand": "npm run build"
   },
   "app": {
     "windows": [
@@ -32,6 +32,14 @@
     "targets": ["app", "dmg"],
     "category": "DeveloperTool",
     "externalBin": ["binaries/layer8d"],
-    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"]
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDhCQkRFNDczRUVFQjg5RkMKUldUOGlldnVjK1M5aTdZeUhMeEM1eGVuN3lkelVGU3UvZW1yM3Q5U0lrMG9BVm4ySm1ZbDRYS1cK",
+      "endpoints": ["http://127.0.0.1:7979/api/update/latest.json"],
+      "dangerousInsecureTransportProtocol": true
+    }
   }
 }

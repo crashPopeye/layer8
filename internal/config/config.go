@@ -25,6 +25,10 @@ type Config struct {
 	AutoApproveDo bool `json:"autoApproveDo"`
 	// PluginDir is the layer8 Claude Code plugin sessions load; empty installs the bundled one under Home.
 	PluginDir string `json:"pluginDir"`
+	// GitHubAPI is the base URL of the GitHub REST and GraphQL APIs.
+	GitHubAPI string `json:"githubApi"`
+	// UpdateRepo is the "owner/name" repository whose latest release the app updates to.
+	UpdateRepo string `json:"updateRepo"`
 }
 
 // Apps names the macOS applications a task's "open" action uses.
@@ -50,7 +54,8 @@ func Load() (Config, error) {
 	if err := os.MkdirAll(home, 0o700); err != nil {
 		return Config{}, err
 	}
-	c := Config{Home: home, Addr: "127.0.0.1:7979", MaxSessions: 6, Apps: Apps{Terminal: "Terminal", Editor: "Visual Studio Code"}}
+	c := Config{Home: home, Addr: "127.0.0.1:7979", MaxSessions: 6, Apps: Apps{Terminal: "Terminal", Editor: "Visual Studio Code"},
+		GitHubAPI: "https://api.github.com", UpdateRepo: "crashPopeye/layer8"}
 	data, err := os.ReadFile(c.Path("config.json"))
 	if errors.Is(err, fs.ErrNotExist) {
 		return c, nil

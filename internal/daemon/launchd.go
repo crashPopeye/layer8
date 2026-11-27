@@ -42,6 +42,7 @@ func Plist(exe string, cfg config.Config) string {
 }
 
 // Ensure installs or refreshes the LaunchAgent, waits until the daemon of this version answers, and returns its token.
+// A daemon of another version restarts onto the new binary right away, or once its busy sessions finish while the old one keeps serving.
 func Ensure(cfg config.Config, version string) (token string, err error) {
 	if token, err = cfg.Token(); err != nil {
 		return "", err
@@ -79,8 +80,14 @@ func Ensure(cfg config.Config, version string) (token string, err error) {
 			return "", fmt.Errorf("launchctl bootstrap: %v: %s", err, out)
 		}
 	case running != version:
-		if out, err := exec.Command("launchctl", "kickstart", "-k", service).CombinedOutput(); err != nil {
-			return "", fmt.Errorf("launchctl kickstart: %v: %s", err, out)
+		busy, err := requestRestart(cfg.URL(), token)
+		if busy {
+			return token, nil
+		}
+		if err != nil {
+			if out, err := exec.Command("launchctl", "kickstart", "-k", service).CombinedOutput(); err != nil {
+				return "", fmt.Errorf("launchctl kickstart: %v: %s", err, out)
+			}
 		}
 	}
 
@@ -90,6 +97,23 @@ func Ensure(cfg config.Config, version string) (token string, err error) {
 		}
 	}
 	return token, nil
+}
+
+// requestRestart asks the running daemon to restart when idle and reports whether sessions keep it busy for now.
+func requestRestart(url, token string) (busy bool, err error) {
+	req, _ := http.NewRequest("POST", url+"/api/restart", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := (&http.Client{Timeout: 2 * time.Second}).Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusAccepted {
+		return false, fmt.Errorf("restart: %s", resp.Status)
+	}
+	var v struct{ Busy bool }
+	err = json.NewDecoder(resp.Body).Decode(&v)
+	return v.Busy, err
 }
 
 func runningVersion(url string) string {
