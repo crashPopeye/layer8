@@ -41,7 +41,7 @@ func TestEnsureLeavesAHealthyDaemonAlone(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	ts := httptest.NewServer(Build(db, token, "v1"))
+	ts := httptest.NewServer(Build(t.Context(), cfg, db, token, "v1"))
 	defer ts.Close()
 	cfg.Addr = ts.Listener.Addr().String()
 

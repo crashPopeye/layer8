@@ -29,6 +29,24 @@ var migrations = []string{
 		ok INTEGER NOT NULL,
 		message TEXT NOT NULL
 	);`,
+	`CREATE TABLE tasks (
+		id INTEGER PRIMARY KEY,
+		slug TEXT NOT NULL UNIQUE,
+		parent_id INTEGER REFERENCES tasks(id),
+		root_id INTEGER REFERENCES tasks(id),
+		project_id INTEGER NOT NULL REFERENCES projects(id),
+		title TEXT NOT NULL,
+		branch TEXT NOT NULL,
+		base_ref TEXT NOT NULL,
+		worktree TEXT NOT NULL,
+		status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'done', 'archived')),
+		linear TEXT,
+		pr TEXT,
+		created_by TEXT NOT NULL,
+		created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+	);
+	CREATE INDEX tasks_project ON tasks (project_id);
+	CREATE INDEX tasks_parent ON tasks (parent_id);`,
 }
 
 // Open opens the database at path and applies pending migrations.

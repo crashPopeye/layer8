@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/crashPopeye/layer8/internal/config"
 	"github.com/crashPopeye/layer8/internal/daemon"
 	"github.com/crashPopeye/layer8/internal/store"
 )
@@ -55,7 +56,7 @@ func setup(t *testing.T) (*rpc, *sql.DB, string) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	ts := httptest.NewServer(daemon.Build(db, "tok", "test"))
+	ts := httptest.NewServer(daemon.Build(t.Context(), config.Config{Home: t.TempDir()}, db, "tok", "test"))
 	t.Cleanup(ts.Close)
 	repo := filepath.Join(t.TempDir(), "api-gateway")
 	if out, err := exec.Command("git", "init", "-q", repo).CombinedOutput(); err != nil {

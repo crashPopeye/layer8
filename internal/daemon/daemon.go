@@ -18,16 +18,25 @@ import (
 	"github.com/crashPopeye/layer8/internal/projects"
 	"github.com/crashPopeye/layer8/internal/server"
 	"github.com/crashPopeye/layer8/internal/store"
+	"github.com/crashPopeye/layer8/internal/tasks"
 	"github.com/crashPopeye/layer8/internal/tree"
 )
 
-// Build assembles the tree, its kinds and the HTTP handler.
-func Build(db *sql.DB, token, version string) http.Handler {
+// Build assembles the tree, its kinds and the HTTP handler, and watches artifact folders until ctx ends.
+func Build(ctx context.Context, cfg config.Config, db *sql.DB, token, version string) http.Handler {
 	t := tree.New(db)
 	hub := server.NewHub()
 	t.OnChange = func(addrs []tree.Addr) { hub.Publish("node", server.NodeChange{Addrs: addrs}) }
 	projects.Register(t, db, version)
-	return server.New(server.Options{Tree: t, Hub: hub, Token: token, Version: version, MCP: mcp.New(t, hub, version)})
+	ts := tasks.Register(t, db, tasks.Options{Home: cfg.Home, Apps: cfg.Apps})
+	go ts.Watch(ctx, 2*time.Second)
+	return server.New(server.Options{
+		Tree: t, Hub: hub, Token: token, Version: version, MCP: mcp.New(t, hub, version),
+		Routes: map[string]http.Handler{
+			"GET /api/artifact": http.HandlerFunc(ts.ServeArtifact),
+			"GET /api/file":     http.HandlerFunc(ts.ServeFile),
+		},
+	})
 }
 
 // Serve runs the daemon until SIGINT or SIGTERM.
@@ -48,7 +57,7 @@ func Serve(cfg config.Config, version string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	srv := &http.Server{
-		Handler:           Build(db, token, version),
+		Handler:           Build(ctx, cfg, db, token, version),
 		ReadHeaderTimeout: 10 * time.Second,
 		BaseContext:       func(net.Listener) context.Context { return ctx },
 	}

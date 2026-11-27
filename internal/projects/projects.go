@@ -7,11 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os/exec"
 	"path/filepath"
 	"regexp"
-	"strings"
 
+	"github.com/crashPopeye/layer8/internal/gitx"
 	"github.com/crashPopeye/layer8/internal/tree"
 )
 
@@ -90,7 +89,7 @@ func (p projects) add(ctx context.Context, _ tree.Node, args json.RawMessage, by
 	if !filepath.IsAbs(a.Path) {
 		return tree.Result{}, fmt.Errorf("path must be absolute: %q", a.Path)
 	}
-	root, err := git(ctx, a.Path, "rev-parse", "--show-toplevel")
+	root, err := gitx.Toplevel(ctx, a.Path)
 	if err != nil {
 		return tree.Result{}, fmt.Errorf("%s is not inside a git repository", a.Path)
 	}
@@ -102,7 +101,7 @@ func (p projects) add(ctx context.Context, _ tree.Node, args json.RawMessage, by
 		return tree.Result{}, err
 	}
 	_, err = p.db.ExecContext(ctx, `INSERT INTO projects (name, path, default_branch, created_by) VALUES (?, ?, ?, ?)`,
-		name, root, defaultBranch(ctx, root), by.String())
+		name, root, gitx.DefaultBranch(ctx, root), by.String())
 	if err != nil {
 		return tree.Result{}, err
 	}
@@ -123,6 +122,11 @@ func (p projects) rename(ctx context.Context, n tree.Node, args json.RawMessage,
 }
 
 func (p projects) remove(ctx context.Context, n tree.Node, _ json.RawMessage, _ tree.Actor) (tree.Result, error) {
+	var tasks int
+	p.db.QueryRowContext(ctx, `SELECT count(*) FROM tasks WHERE project_id = (SELECT id FROM projects WHERE name = ?)`, n.Title).Scan(&tasks)
+	if tasks > 0 {
+		return tree.Result{}, fmt.Errorf("project %s still has %d tasks", n.Title, tasks)
+	}
 	if _, err := p.db.ExecContext(ctx, `DELETE FROM projects WHERE name = ?`, n.Title); err != nil {
 		return tree.Result{}, err
 	}
@@ -146,20 +150,4 @@ func (p projects) checkFree(ctx context.Context, name, path string) error {
 	default:
 		return fmt.Errorf("project %q already exists", name)
 	}
-}
-
-// defaultBranch is origin's HEAD branch, else the checked-out branch, else main.
-func defaultBranch(ctx context.Context, repo string) string {
-	if ref, err := git(ctx, repo, "rev-parse", "--abbrev-ref", "origin/HEAD"); err == nil {
-		return strings.TrimPrefix(ref, "origin/")
-	}
-	if ref, err := git(ctx, repo, "symbolic-ref", "--short", "HEAD"); err == nil {
-		return ref
-	}
-	return "main"
-}
-
-func git(ctx context.Context, dir string, args ...string) (string, error) {
-	out, err := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...).Output()
-	return strings.TrimSpace(string(out)), err
 }
