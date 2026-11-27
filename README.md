@@ -30,9 +30,17 @@ Everything is a node with an address (`app`, `project:api-gateway`, `task:eng-48
 | `internal/server` | loopback/origin/token guard, HTTP API, SSE hub |
 | `internal/mcp` | MCP streamable HTTP endpoint |
 | `internal/projects` | `app` and `project` kinds |
+| `internal/linear` | Linear GraphQL client, API key / OAuth PKCE, `linear` kind |
 | `internal/store` | SQLite + migrations |
 | `internal/config` | `~/.layer8` (or `LAYER8_HOME`), `config.json`, token |
 | `internal/daemon` | wiring, serve, launchd agent `dev.layer8.daemon` |
+
+## Linear
+
+`linear` lists your open issues as `linear:<ID>` children; `linear:ENG-482` reads one issue (with a `markdown` rendering), and `layer8 do linear search query=upload` searches. Credentials live in `~/.layer8/linear.json` (0600).
+
+- **API key (default):** create one in Linear → Settings → Security & access → Personal API keys, then `layer8 do linear connect apiKey=lin_api_…`.
+- **Sign in with Linear (optional):** create your own OAuth app in Linear → Settings → API → OAuth applications with callback URL `http://127.0.0.1:7979/api/linear/callback`, put its client id in `~/.layer8/config.json` as `"linearClientId"`, restart the daemon, then `layer8 do linear connect-oauth` and open the returned URL. PKCE is used, so no client secret is stored.
 
 ## Develop
 

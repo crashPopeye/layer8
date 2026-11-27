@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -44,6 +45,12 @@ func TestEnsureLeavesAHealthyDaemonAlone(t *testing.T) {
 	ts := httptest.NewServer(Build(t.Context(), cfg, db, token, "v1"))
 	defer ts.Close()
 	cfg.Addr = ts.Listener.Addr().String()
+
+	resp, err := http.Get(ts.URL + "/api/linear/callback?state=forged&code=x")
+	if err != nil || resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("linear callback must be public and reject unknown state: %v %v", resp, err)
+	}
+	resp.Body.Close()
 
 	exe, _ := os.Executable()
 	exe, _ = filepath.EvalSymlinks(exe)

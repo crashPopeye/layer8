@@ -17,6 +17,8 @@ type Config struct {
 	Addr        string `json:"addr"`
 	MaxSessions int    `json:"maxSessions"`
 	Apps        Apps   `json:"apps"`
+	// LinearClientID is the client id of the user's own Linear OAuth app; empty means API key only.
+	LinearClientID string `json:"linearClientId"`
 }
 
 // Apps names the macOS applications a task's "open" action uses.
