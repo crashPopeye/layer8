@@ -25,7 +25,8 @@ it("renders a field per schema property and submits typed args", async () => {
   expect(await screen.findByText("target is required")).toBeTruthy();
   expect(submit).not.toHaveBeenCalled();
 
-  fireEvent.change(screen.getByRole("combobox"), { target: { value: "editor" } });
+  fireEvent.keyDown(screen.getByRole("button", { name: "target" }), { key: "Enter" });
+  fireEvent.click(await screen.findByRole("menuitemradio", { name: "editor" }));
   fireEvent.click(screen.getByRole("button", { name: "open" }));
   await waitFor(() => expect(submit).toHaveBeenCalledWith({ target: "editor" }));
 });
@@ -45,7 +46,8 @@ it("runs an action from the dialog and focuses the node it creates", async () =>
   );
   act(() => openAction(["project:web-app", "project:api-gateway"], "create-task"));
 
-  fireEvent.change(await screen.findByRole("combobox", { name: "target" }), { target: { value: "project:api-gateway" } });
+  fireEvent.keyDown(await screen.findByRole("button", { name: "target" }), { key: "Enter" });
+  fireEvent.click(await screen.findByRole("menuitemradio", { name: "project:api-gateway" }));
   fireEvent.change(await screen.findByPlaceholderText(/Branch to start from/), { target: { value: "develop" } });
   fireEvent.change(screen.getAllByRole("textbox")[0], { target: { value: "Spike: S3 multipart" } });
   fireEvent.click(screen.getByRole("button", { name: "create-task" }));

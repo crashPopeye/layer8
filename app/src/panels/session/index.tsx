@@ -2,7 +2,7 @@ import { Ellipsis, Plug } from "lucide-react";
 import { Popover } from "radix-ui";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, menuLabel, menuSurface } from "@/components/ui/dropdown-menu";
 import { taskOf, useFocus } from "@/lib/focus";
 import { useClient, useNode } from "@/lib/react";
 import type { Addr, Node } from "@/lib/types";
@@ -85,8 +85,8 @@ function Capabilities({ caps }: { caps: any }) {
         </Button>
       </Popover.Trigger>
       <Popover.Portal>
-        <Popover.Content sideOffset={4} align="end" className="z-50 w-72 rounded-md border bg-popover p-2 text-[12px] shadow-md">
-          <p className="mb-1 text-[11px] text-muted-foreground">MCP servers and connectors</p>
+        <Popover.Content sideOffset={4} align="end" className={cn(menuSurface, "w-72 p-2 text-[12px]")}>
+          <p className={cn(menuLabel, "px-0 pt-0")}>MCP servers and connectors</p>
           {servers.map((s) => (
             <p key={s.name} className="flex items-center gap-2 py-0.5">
               <span className={cn("size-1.5 rounded-full", mcpDot(s.status))} />
@@ -94,7 +94,7 @@ function Capabilities({ caps }: { caps: any }) {
               <span className="ml-auto font-mono text-[11px] text-muted-foreground">{s.status}</span>
             </p>
           ))}
-          <p className="mt-2 mb-1 text-[11px] text-muted-foreground">Plugins</p>
+          <p className={cn(menuLabel, "mt-1 px-0")}>Plugins</p>
           {plugins.map((p) => (
             <p key={p.name} className="flex items-center gap-2 py-0.5">
               <Plug className="size-3 text-muted-foreground" />
