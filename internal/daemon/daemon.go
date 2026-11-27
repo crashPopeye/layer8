@@ -41,7 +41,7 @@ func Serve(version string, ui fs.FS) error {
 		return err
 	}
 	hub := server.NewHub()
-	app, err := core.New(core.Options{Paths: paths, Version: version, Emit: hub.Emit})
+	app, err := core.New(core.Options{Paths: paths, Version: version, Emit: hub.Emit, Token: token})
 	if err != nil {
 		return err
 	}

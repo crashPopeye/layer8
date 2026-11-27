@@ -80,6 +80,10 @@ Pull requests
   layer8 pr TASK -s PR                  push and open the PR
   layer8 fix-ci TASK -s PR | layer8 review TASK -s PR
 
+Everything, generically (what agents use)
+  layer8 look [REF]                     the app as a tree: refs, fields, verbs
+  layer8 act REF VERB [key=value...]    run a verb, e.g. layer8 act slice:eng-123/pr1 fix-ci
+
 Tools
   layer8 open TASK [-s PR] terminal|editor
   layer8 install-cli                    put "layer8" on your PATH

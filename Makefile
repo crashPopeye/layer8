@@ -3,7 +3,7 @@
 .PHONY: test daemon dev app release
 
 test:
-	go vet ./... && go test -race ./...
+	go vet ./... && go test -race ./... && node build/layout_test.mjs
 
 # The daemon in the foreground; the UI is at http://127.0.0.1:7878 (paste ~/.layer8/token).
 daemon:

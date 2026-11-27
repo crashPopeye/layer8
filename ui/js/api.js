@@ -60,6 +60,8 @@ export async function api(method, path, body) {
 }
 
 export const get = (p) => api("GET", p);
+/** Where a plugin module is served; import() can't send headers, so the token rides in the query. */
+export const pluginURL = (name) => `${daemon.url}/api/plugins/${encodeURIComponent(name)}?token=${encodeURIComponent(daemon.token)}`;
 export const post = (p, b = {}) => api("POST", p, b);
 export const put = (p, b) => api("PUT", p, b);
 export const del = (p) => api("DELETE", p);
@@ -84,7 +86,7 @@ export const withQuery = (path, o) => {
 
 // Server-sent events from the daemon. EventSource reconnects by itself (the daemon
 // restarts after updates); onOpen lets the caller refetch state after a gap.
-const handlers = { "layer8:state": new Set(), "layer8:events": new Set() };
+const handlers = { "layer8:state": new Set(), "layer8:events": new Set(), "layer8:ui": new Set() };
 let source = null;
 let openHandlers = new Set();
 

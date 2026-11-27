@@ -155,6 +155,46 @@ func (a *App) Handler(h Hooks) http.Handler {
 
 	route("GET /api/state", func(r *http.Request) (any, error) { return a.State() })
 
+	route("GET /api/look", func(r *http.Request) (any, error) {
+		n, err := a.Look(r.URL.Query().Get("ref"), r.Header.Get(sessionHeader))
+		if err != nil || r.URL.Query().Get("format") != "text" {
+			return n, err
+		}
+		return map[string]string{"text": n.Text()}, nil
+	})
+	route("POST /api/act", func(r *http.Request) (any, error) {
+		var in struct {
+			Ref, Verb string
+			Args      Args
+		}
+		if err := readJSON(r, &in); err != nil {
+			return nil, err
+		}
+		c, cancel := ctx(r, 5*time.Minute)
+		defer cancel()
+		v, err := a.Act(c, in.Ref, in.Verb, in.Args)
+		return map[string]any{"result": v, "text": Describe(v)}, err
+	})
+	mux.HandleFunc("POST /api/mcp", a.serveMCP)
+
+	route("GET /api/ui", func(r *http.Request) (any, error) { return a.UIPrefs() })
+	route("PUT /api/ui", func(r *http.Request) (any, error) {
+		b, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		if err != nil {
+			return nil, bad("could not read request")
+		}
+		return nil, a.SaveUIPrefs(b)
+	})
+	route("PUT /api/ui/focus", func(r *http.Request) (any, error) {
+		var f Focus
+		if err := readJSON(r, &f); err != nil {
+			return nil, err
+		}
+		a.SetFocus(f)
+		return nil, nil
+	})
+	mux.HandleFunc("GET /api/plugins/{name}", a.servePlugin)
+
 	route("GET /api/config", func(r *http.Request) (any, error) {
 		c := a.Config.Get()
 		c.LinearAPIKey, c.GitHubToken = mask(c.LinearAPIKey), mask(c.GitHubToken)

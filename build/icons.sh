@@ -6,7 +6,7 @@ VERSION=1.57.0
 ICONS="archive arrow-up check check-check chevron-down chevron-right code-xml external-link file-diff file-text
 folder-plus git-commit-horizontal git-fork git-merge git-pull-request git-pull-request-arrow hammer link list-checks
 message-square message-square-reply messages-square plus refresh-cw search settings shield square-terminal telescope
-trash-2 unlink upload wrench x"
+trash-2 unlink upload wrench x columns-2 rows-2 panels-top-left layout-dashboard sun moon sun-moon palette puzzle bell"
 
 cd "$(dirname "$0")/.."
 tmp=$(mktemp -d)

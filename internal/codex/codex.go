@@ -172,8 +172,15 @@ func threadParams(o claude.Options) map[string]any {
 	set("approvalPolicy", approval)
 	set("approvalsReviewer", reviewer)
 	set("sandbox", sandbox)
+	config := map[string]any{}
 	if len(o.AddDirs) > 0 {
-		params["config"] = map[string]any{"sandbox_workspace_write": map[string]any{"writable_roots": o.AddDirs}}
+		config["sandbox_workspace_write"] = map[string]any{"writable_roots": o.AddDirs}
+	}
+	if m := o.MCP; m != nil {
+		config["mcp_servers"] = map[string]any{m.Name: map[string]any{"url": m.URL, "http_headers": m.Headers}}
+	}
+	if len(config) > 0 {
+		params["config"] = config
 	}
 	return params
 }

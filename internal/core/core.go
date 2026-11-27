@@ -4,6 +4,7 @@ package core
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"sync"
 	"sync/atomic"
@@ -36,6 +37,12 @@ type App struct {
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 
+	token   string
+	verbs   []*Verb
+	focusMu sync.Mutex
+	focus   Focus
+	caps    sync.Map // "<harness>\x00<cwd>" -> *capsEntry
+
 	pollMu    sync.Mutex
 	syncMu    sync.Mutex
 	lastSync  atomic.Int64 // unix nanos of the last SyncAll start
@@ -47,6 +54,7 @@ type Options struct {
 	Version string
 	Start   sessions.StartFunc // nil = the real agent CLIs
 	Emit    Emitter
+	Token   string // the daemon's API token; "" leaves agents without the layer8 MCP server
 }
 
 func New(o Options) (*App, error) {
@@ -69,7 +77,8 @@ func New(o Options) (*App, error) {
 	if emit == nil {
 		emit = func(string, any) {}
 	}
-	a := &App{Paths: o.Paths, Config: cfg, Store: st, Linear: linear.NewOAuth(o.Paths.LinearToken), Version: o.Version, bus: newBus(emit)}
+	a := &App{Paths: o.Paths, Config: cfg, Store: st, Linear: linear.NewOAuth(o.Paths.LinearToken), Version: o.Version, bus: newBus(emit), token: o.Token}
+	a.verbs = a.declareVerbs()
 	a.ctx, a.cancel = context.WithCancel(context.Background())
 	a.Sessions = sessions.New(st, a.bus, start, func() int { return a.Config.Get().MaxConcurrentSessions }, a.launch)
 	a.Sessions.OnTurnEnd = a.onTurnEnd
@@ -157,7 +166,20 @@ func (a *App) launch(s store.Session) (sessions.Launch, error) {
 		Model:              s.Model,
 		Effort:             s.Effort,
 		PermissionMode:     s.PermissionMode,
+		MCP:                a.mcpServer(s.ID),
 	}, nil
+}
+
+// mcpServer is how a session reaches layer8's look and act tools.
+func (a *App) mcpServer(sessionID string) *claude.MCPServer {
+	if a.token == "" {
+		return nil
+	}
+	return &claude.MCPServer{
+		Name:    "layer8",
+		URL:     fmt.Sprintf("http://127.0.0.1:%d/api/mcp", a.Config.Get().Port),
+		Headers: map[string]string{"Authorization": "Bearer " + a.token, sessionHeader: sessionID},
+	}
 }
 
 // startAgent starts the CLI of the session's harness.

@@ -38,6 +38,15 @@ type Options struct {
 	Effort             string
 	PermissionMode     string   // "" leaves it to the user's Claude Code settings
 	Env                []string // extra KEY=VALUE pairs
+	MCP                *MCPServer
+}
+
+// MCPServer is an HTTP MCP server given to the agent for this session only.
+// Its read-only tool "look" is allowed up front; others go through permission prompts.
+type MCPServer struct {
+	Name    string
+	URL     string
+	Headers map[string]string
 }
 
 // PermissionRequest is a can_use_tool control request.
@@ -261,6 +270,10 @@ func Args(o Options) []string {
 	}
 	for _, d := range o.AddDirs {
 		args = append(args, "--add-dir="+d)
+	}
+	if m := o.MCP; m != nil {
+		cfg, _ := json.Marshal(map[string]any{"mcpServers": map[string]any{m.Name: map[string]any{"type": "http", "url": m.URL, "headers": m.Headers}}})
+		args = append(args, "--mcp-config="+string(cfg), "--allowedTools=mcp__"+m.Name+"__look")
 	}
 	return args
 }
