@@ -267,10 +267,11 @@ type idleProc struct {
 	once sync.Once
 }
 
-func (p *idleProc) Send(harness.UserMessage) error  { return nil }
-func (p *idleProc) Interrupt(context.Context) error { return nil }
-func (p *idleProc) Close(time.Duration)             { p.once.Do(func() { close(p.done) }) }
-func (p *idleProc) Done() <-chan struct{}           { return p.done }
+func (p *idleProc) Send(harness.UserMessage) error        { return nil }
+func (p *idleProc) SendNow(context.Context, string) error { return nil }
+func (p *idleProc) Interrupt(context.Context) error       { return nil }
+func (p *idleProc) Close(time.Duration)                   { p.once.Do(func() { close(p.done) }) }
+func (p *idleProc) Done() <-chan struct{}                 { return p.done }
 
 func TestWithTheSessionManager(t *testing.T) {
 	e := build(t, true)

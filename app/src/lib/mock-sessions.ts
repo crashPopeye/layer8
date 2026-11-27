@@ -12,6 +12,10 @@ const sessionActions: [Action, (s: MockSession) => boolean][] = [
     },
     () => true,
   ],
+  [
+    { name: "send-now", help: "Deliver a queued message at once instead of after the running turn", args: obj({ message: { type: "string" } }) },
+    (s) => ["running", "waiting"].includes(s.status),
+  ],
   [{ name: "interrupt", help: "Stop the current turn" }, (s) => ["running", "waiting"].includes(s.status)],
   [{ name: "allow", help: "Allow a pending tool call (user only)", args: obj({ approval: { type: "integer" }, always: { type: "boolean" } }) }, (s) => s.status === "waiting"],
   [{ name: "deny", help: "Deny a pending tool call (user only)", args: obj({ approval: { type: "integer" }, message: { type: "string" } }) }, (s) => s.status === "waiting"],
@@ -64,7 +68,7 @@ interface MockSession {
   cost: number;
   events: SessionEvent[];
   approval: { id: number; toolUseId: string } | null;
-  queued: number;
+  queue: string[];
   timers: ReturnType<typeof setTimeout>[];
 }
 
@@ -97,7 +101,8 @@ export function mockSessions(send: (e: L8Event) => void, delay = 120) {
     ];
   };
 
-  function turn(s: MockSession) {
+  function turn(s: MockSession, id: string) {
+    emit(s, "delivered", { id });
     const n = nextEvent;
     status(s, "running");
     play(s, [
@@ -146,17 +151,32 @@ export function mockSessions(send: (e: L8Event) => void, delay = 120) {
       numTurns: 6,
       usage: { input_tokens: 41200, output_tokens: 1830 },
     });
-    if (s.queued > 0) {
-      s.queued--;
-      return turn(s);
-    }
+    const next = s.queue.shift();
+    if (next) return turn(s, next);
     status(s, "idle");
   }
 
-  function say(s: MockSession, args: Record<string, unknown>, by = "user") {
-    emit(s, "user", { ...args, by });
-    if (["running", "waiting"].includes(s.status)) s.queued++;
-    else turn(s);
+  function say(s: MockSession, { now: _, ...args }: Record<string, unknown>, by = "user") {
+    const id = `m${nextEvent}`;
+    emit(s, "user", { ...args, id, by });
+    if (["running", "waiting"].includes(s.status)) s.queue.push(id);
+    else turn(s, id);
+    return id;
+  }
+
+  function interrupt(s: MockSession) {
+    s.timers.forEach(clearTimeout);
+    s.timers = [];
+    if (s.approval) emit(s, "approval", { approval: s.approval.id, decision: "deny", message: "interrupted", by: "user" });
+    s.approval = null;
+    end(s, true);
+  }
+
+  function sendNow(s: MockSession, id: string) {
+    if (!s.queue.includes(id)) return false;
+    s.queue = [id, ...s.queue.filter((q) => q !== id)];
+    interrupt(s);
+    return true;
   }
 
   function summary(s: MockSession): Summary {
@@ -208,7 +228,7 @@ export function mockSessions(send: (e: L8Event) => void, delay = 120) {
       cost: 0,
       events: [],
       approval: null,
-      queued: 0,
+      queue: [],
       timers: [],
     };
     sessions.set(id8, s);
@@ -227,19 +247,21 @@ export function mockSessions(send: (e: L8Event) => void, delay = 120) {
     const s = sessions.get(n.addr.slice("session:".length));
     if (!s) return undefined;
     switch (action) {
-      case "say":
-        say(s, args);
+      case "say": {
+        const id = say(s, args);
+        if (args.now) sendNow(s, id);
         return ok(`sent to ${n.addr}`);
+      }
+      case "send-now":
+        return sendNow(s, args.message ?? s.queue[0])
+          ? ok(`sent now to ${n.addr}`)
+          : { ok: false, addr: n.addr, message: `message ${args.message} is not queued on ${n.addr}` };
       case "allow":
       case "deny":
         finish(s, action === "allow", !!args.always);
         return ok(`${action === "allow" ? "allowed" : "denied"} approval ${args.approval ?? ""}`.trim());
       case "interrupt":
-        s.timers.forEach(clearTimeout);
-        s.timers = [];
-        if (s.approval) emit(s, "approval", { approval: s.approval.id, decision: "deny", message: "interrupted", by: "user" });
-        s.approval = null;
-        end(s, true);
+        interrupt(s);
         return ok(`interrupted ${n.addr}`);
       case "close":
         s.timers.forEach(clearTimeout);

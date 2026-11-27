@@ -1,4 +1,4 @@
-import { Check, ChevronDown, ChevronRight, LoaderCircle, X } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, LoaderCircle, X, Zap } from "lucide-react";
 import { lazy, memo, Suspense, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -143,11 +143,13 @@ function Result({ data }: { data: Record<string, any> }) {
 export const ItemView = memo(function ItemView({
   item,
   queued,
+  sendNow,
   answer,
   pending,
 }: {
   item: Item;
   queued?: boolean;
+  sendNow?: (id: string) => void;
   answer: Answer;
   pending: Set<number>;
 }) {
@@ -167,6 +169,18 @@ export const ItemView = memo(function ItemView({
                 </span>
               ))}
               {queued && <span className="rounded border border-wait/50 px-1.5 text-wait">queued</span>}
+              {queued && sendNow && item.id && (
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  className="h-5 text-[11px]"
+                  title="Deliver this message now instead of after the running turn"
+                  onClick={() => sendNow(item.id!)}
+                >
+                  <Zap />
+                  Send now
+                </Button>
+              )}
             </div>
           )}
         </div>

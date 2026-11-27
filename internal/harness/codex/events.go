@@ -33,6 +33,7 @@ type change struct {
 type item struct {
 	Type             string          `json:"type"`
 	ID               string          `json:"id"`
+	ClientID         string          `json:"clientId"`
 	Text             string          `json:"text"`
 	Summary          []string        `json:"summary"`
 	Content          json.RawMessage `json:"content"`
@@ -121,6 +122,9 @@ func (p *proc) notify(method string, raw json.RawMessage) {
 	case "item/reasoning/summaryTextDelta", "item/reasoning/textDelta":
 		p.emit(harness.EventThinking, true, map[string]any{"text": n.Delta})
 	case "item/started":
+		if n.Item.Type == "userMessage" && n.Item.ClientID != "" {
+			p.emit(harness.EventDelivered, false, map[string]any{"id": n.Item.ClientID})
+		}
 		if call, ok := asTool(n.Item); ok {
 			p.tools[n.Item.ID] = call
 			p.emit(harness.EventToolUse, false, map[string]any{"id": n.Item.ID, "name": call.name, "input": call.input})

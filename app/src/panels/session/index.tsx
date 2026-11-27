@@ -166,6 +166,14 @@ function SessionView({ node, task }: { node: Node; task: Addr }) {
     [client, node.addr],
   );
 
+  const sendNow = useCallback(
+    async (id: string) => {
+      const [r] = await client.doOps([{ target: node.addr, action: "send-now", args: { message: id } }]);
+      setMessage(r.ok ? null : (r.message ?? "send-now failed"));
+    },
+    [client, node.addr],
+  );
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const key = e.key.toLowerCase();
@@ -200,7 +208,7 @@ function SessionView({ node, task }: { node: Node; task: Addr }) {
           </Button>
         )}
         {items.map((it) => (
-          <ItemView key={it.key} item={it} queued={isQueued(t, it, status)} answer={answer} pending={pending} />
+          <ItemView key={it.key} item={it} queued={isQueued(it, status)} sendNow={sendNow} answer={answer} pending={pending} />
         ))}
         {t.items.length === 0 && <p className="text-muted-foreground">No messages yet.</p>}
         {node.fields?.error ? <p className="my-2 text-bad">{String(node.fields.error)}</p> : null}

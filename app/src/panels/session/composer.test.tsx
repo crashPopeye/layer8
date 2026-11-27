@@ -43,3 +43,24 @@ it("starts a new session in a new sub-task worktree", async () => {
   expect(doOps.mock.calls[0][0][0].args).toEqual({ name: "retry-failed-uploads" });
   expect(doOps.mock.calls[1][0][0].args).toMatchObject({ prompt: "Retry failed uploads" });
 });
+
+it("sends now with ⌘⏎ while the session runs", async () => {
+  const client = mockClient([
+    { target: "app", action: "add-project", args: { path: "/src/api" } },
+    { target: "project:api", action: "create-task", args: { title: "Uploads", slug: "uploads" } },
+    { target: "task:uploads", action: "start-session", args: { prompt: "Add rate limiting" } },
+  ]);
+  const session = (await client.getNode("task:uploads", 1)).children.find((c) => c.kind === "session")!.addr;
+  const doOps = vi.spyOn(client, "doOps");
+  render(
+    <ClientProvider client={client}>
+      <Composer task="task:uploads" session={session} sessions={[]} />
+    </ClientProvider>,
+  );
+
+  await screen.findByTitle("Send now (⌘⏎)");
+  fireEvent.change(screen.getByLabelText("Message"), { target: { value: "Use a token bucket" } });
+  fireEvent.keyDown(screen.getByLabelText("Message"), { key: "Enter", metaKey: true });
+
+  await waitFor(() => expect(doOps).toHaveBeenCalledWith([{ target: session, action: "say", args: { text: "Use a token bucket", now: true } }]));
+});

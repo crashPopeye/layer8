@@ -209,7 +209,7 @@ func (p *proc) Send(msg harness.UserMessage) error {
 
 // startTurn sends turn/start; a rejected turn ends with an error result.
 func (p *proc) startTurn(msg harness.UserMessage) error {
-	params := map[string]any{"threadId": p.thread, "input": p.input(msg)}
+	params := map[string]any{"threadId": p.thread, "input": p.input(msg), "clientUserMessageId": msg.ID}
 	if p.effort != "" {
 		params["effort"] = p.effort
 	}
@@ -219,6 +219,7 @@ func (p *proc) startTurn(msg harness.UserMessage) error {
 	}
 	go func() {
 		if _, err := p.await(context.Background(), ch); err != nil && !p.closing.Load() {
+			p.emit(harness.EventDelivered, false, map[string]any{"id": msg.ID})
 			p.emit(harness.EventError, false, map[string]any{"message": err.Error()})
 			p.endTurn(map[string]any{"subtype": "error", "isError": true, "result": err.Error(), "sessionId": p.thread})
 		}
@@ -240,6 +241,28 @@ func (p *proc) endTurn(result map[string]any) {
 		}
 	}
 	p.busy = false
+}
+
+// SendNow steers a queued message into the running turn. When codex cannot steer it,
+// the message moves to the head of the queue and the running turn is interrupted.
+func (p *proc) SendNow(ctx context.Context, id string) error {
+	p.tmu.Lock()
+	i := slices.IndexFunc(p.queue, func(m harness.UserMessage) bool { return m.ID == id })
+	if i < 0 {
+		p.tmu.Unlock()
+		return nil
+	}
+	msg, turn := p.queue[i], p.turn
+	p.queue = slices.Delete(p.queue, i, i+1)
+	p.tmu.Unlock()
+	steer := map[string]any{"threadId": p.thread, "input": p.input(msg), "expectedTurnId": turn, "clientUserMessageId": id}
+	if turn != "" && p.call(ctx, "turn/steer", steer, nil) == nil {
+		return nil
+	}
+	p.tmu.Lock()
+	p.queue = slices.Insert(p.queue, 0, msg)
+	p.tmu.Unlock()
+	return p.Interrupt(ctx)
 }
 
 // input converts msg to codex input items. A leading /name or $name naming a known
