@@ -1,8 +1,8 @@
 import { Ellipsis, Plug } from "lucide-react";
-import { Popover } from "radix-ui";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { taskOf, useFocus } from "@/lib/focus";
 import { useClient, useNode } from "@/lib/react";
 import type { Addr, Node } from "@/lib/types";
@@ -77,33 +77,31 @@ function Capabilities({ caps }: { caps: any }) {
   if (!servers.length && !plugins.length) return null;
   const worst = servers.find((s) => s.status === "failed") ?? servers.find((s) => s.status !== "connected");
   return (
-    <Popover.Root>
-      <Popover.Trigger asChild>
+    <Popover>
+      <PopoverTrigger asChild>
         <Button variant="outline" size="xs" className="font-mono text-[11px] text-muted-foreground" title="Loaded MCP servers and plugins">
           <span className={cn("size-1.5 rounded-full", mcpDot(worst?.status ?? "connected"))} />
           {servers.length} MCP · {plugins.length} plugins
         </Button>
-      </Popover.Trigger>
-      <Popover.Portal>
-        <Popover.Content sideOffset={4} align="end" className="z-50 w-72 rounded-md border bg-popover p-2 text-[12px] shadow-md">
-          <p className="mb-1 text-[11px] text-muted-foreground">MCP servers and connectors</p>
-          {servers.map((s) => (
-            <p key={s.name} className="flex items-center gap-2 py-0.5">
-              <span className={cn("size-1.5 rounded-full", mcpDot(s.status))} />
-              <span className="truncate">{s.name}</span>
-              <span className="ml-auto font-mono text-[11px] text-muted-foreground">{s.status}</span>
-            </p>
-          ))}
-          <p className="mt-2 mb-1 text-[11px] text-muted-foreground">Plugins</p>
-          {plugins.map((p) => (
-            <p key={p.name} className="flex items-center gap-2 py-0.5">
-              <Plug className="size-3 text-muted-foreground" />
-              {p.name}
-            </p>
-          ))}
-        </Popover.Content>
-      </Popover.Portal>
-    </Popover.Root>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="p-2 text-[12px]">
+        <p className="mb-1 text-[11px] text-muted-foreground">MCP servers and connectors</p>
+        {servers.map((s) => (
+          <p key={s.name} className="flex items-center gap-2 py-0.5">
+            <span className={cn("size-1.5 rounded-full", mcpDot(s.status))} />
+            <span className="truncate">{s.name}</span>
+            <span className="ml-auto font-mono text-[11px] text-muted-foreground">{s.status}</span>
+          </p>
+        ))}
+        <p className="mt-2 mb-1 text-[11px] text-muted-foreground">Plugins</p>
+        {plugins.map((p) => (
+          <p key={p.name} className="flex items-center gap-2 py-0.5">
+            <Plug className="size-3 text-muted-foreground" />
+            {p.name}
+          </p>
+        ))}
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -236,7 +234,7 @@ export function SessionPanel() {
       ) : (
         <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-1 text-muted-foreground">
           <p>New session in {task}</p>
-          <p className="text-[12px]">Pick harness, model, effort and permissions below, then send the first prompt.</p>
+          <p className="text-[12px]">Choose the model and worktree below, then send the first prompt.</p>
         </div>
       )}
       <Composer key={task} task={task} session={session} sessions={sessions} />
