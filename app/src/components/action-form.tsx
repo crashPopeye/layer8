@@ -1,12 +1,12 @@
 import { useEffect, useState, useSyncExternalStore, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
-import { Input, NativeSelect, Textarea } from "@/components/ui/input";
+import { Input, Textarea } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import { setFocus } from "@/lib/focus";
 import { useClient } from "@/lib/react";
 import { argsFrom, fieldsOf, type Values } from "@/lib/schema";
 import type { Action, Addr } from "@/lib/types";
-import { IssuePicker } from "@/panels/linear";
 
 /** A form for one action's args, generated from its JSON Schema. */
 export function ActionForm({
@@ -46,12 +46,14 @@ export function ActionForm({
               onChange={(e) => set(f.name, e.target.checked)}
             />
           ) : f.kind === "enum" ? (
-            <NativeSelect value={String(values[f.name] ?? "")} onChange={(e) => set(f.name, e.target.value)} autoFocus={i === 0}>
-              <option value="" />
-              {f.options!.map((o) => (
-                <option key={String(o)}>{String(o)}</option>
-              ))}
-            </NativeSelect>
+            <Select
+              aria-label={f.name}
+              value={String(values[f.name] ?? "")}
+              placeholder="Choose…"
+              options={[...(f.required ? [] : [["", "none"] as const]), ...f.options!.map(String)]}
+              onValueChange={(v) => set(f.name, v)}
+              autoFocus={i === 0}
+            />
           ) : f.kind === "json" || f.name === "content" ? (
             <Textarea
               value={String(values[f.name] ?? "")}
@@ -117,28 +119,18 @@ function ActionRequest({ req }: { req: Request }) {
   const client = useClient();
   const [target, setTarget] = useState(req.targets[0]);
   const [action, setAction] = useState<Action | null | undefined>(undefined);
-  const [fromLinear, setFromLinear] = useState<"closed" | "open" | null>(null);
-  const [pickError, setPickError] = useState<string | null>(null);
 
   useEffect(() => {
     setAction(undefined);
     client.getNode(target, 0).then(
-      (n) => {
-        setAction(n.actions.find((a) => a.name === req.action) ?? null);
-        const offered = req.action === "create-task" && n.actions.some((a) => a.name === "create-task-from-linear");
-        setFromLinear(offered ? "closed" : null);
-      },
+      (n) => setAction(n.actions.find((a) => a.name === req.action) ?? null),
       () => setAction(null),
     );
   }, [client, target, req.action]);
 
-  async function pick(issue: string) {
-    setPickError(await run({ issue }, "create-task-from-linear"));
-  }
-
-  async function run(args: Record<string, unknown>, name = req.action) {
-    const [r] = await client.doOps([{ target, action: name, args }]);
-    if (!r.ok) return r.message ?? `${name} failed`;
+  async function run(args: Record<string, unknown>) {
+    const [r] = await client.doOps([{ target, action: req.action, args }]);
+    if (!r.ok) return r.message ?? `${req.action} failed`;
     if (r.addr !== target) setFocus(r.addr);
     closeAction();
     return null;
@@ -149,11 +141,7 @@ function ActionRequest({ req }: { req: Request }) {
       <DialogTitle className="font-mono text-sm">{req.action}</DialogTitle>
       <DialogDescription className="text-[12px] text-muted-foreground">{action?.help ?? target}</DialogDescription>
       {req.targets.length > 1 && (
-        <NativeSelect value={target} onChange={(e) => setTarget(e.target.value)} aria-label="target">
-          {req.targets.map((t) => (
-            <option key={t}>{t}</option>
-          ))}
-        </NativeSelect>
+        <Select aria-label="target" value={target} options={req.targets} onValueChange={setTarget} />
       )}
       {action === null && (
         <p className="text-[12px] text-bad">
@@ -161,17 +149,6 @@ function ActionRequest({ req }: { req: Request }) {
         </p>
       )}
       {action && <ActionForm key={target} action={action} onSubmit={(args) => run(args)} />}
-      {fromLinear && (
-        <details className="text-[12px]" onToggle={(e) => setFromLinear(e.currentTarget.open ? "open" : "closed")}>
-          <summary className="cursor-default text-muted-foreground">From Linear issue</summary>
-          {fromLinear === "open" && (
-            <div className="mt-2 max-h-64 overflow-auto">
-              <IssuePicker onPick={pick} />
-              {pickError && <p className="text-bad">{pickError}</p>}
-            </div>
-          )}
-        </details>
-      )}
     </>
   );
 }

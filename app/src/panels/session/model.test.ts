@@ -61,12 +61,12 @@ describe("reduce", () => {
     expect(allowed.items[0]).toMatchObject({ id: 7, decision: "allow", always: true });
   });
 
-  it("marks user turns queued behind an unanswered one while the session runs", () => {
-    const t = reduceAll([ev("user", { text: "one" }, 1), ev("user", { text: "two" }, 2)]);
-    expect(t.items.map((i) => isQueued(t, i, "running"))).toEqual([false, true]);
-    expect(t.items.map((i) => isQueued(t, i, "idle"))).toEqual([false, false]);
-    const answered = reduceAll([delta("text", "cut"), ev("result", { costUsd: 0.1 }, 3)], t);
-    expect(answered.items.map((i) => isQueued(answered, i, "running"))).toEqual([false, false, false, false]);
+  it("marks a user message queued until the agent takes it in", () => {
+    const t = reduceAll([ev("user", { id: "m1", text: "one" }, 1), ev("delivered", { id: "m1" }, 2), ev("user", { id: "m2", text: "two" }, 3)]);
+    expect(t.items.map((i) => isQueued(i, "running"))).toEqual([false, true]);
+    expect(t.items.map((i) => isQueued(i, "idle"))).toEqual([false, false]);
+    const answered = reduceAll([delta("text", "cut"), ev("delivered", { id: "m2" }, 4), ev("result", { costUsd: 0.1 }, 5)], t);
+    expect(answered.items.map((i) => isQueued(i, "running"))).toEqual([false, false, false, false]);
     expect(answered.items[2]).toMatchObject({ kind: "text", streaming: false });
   });
 });

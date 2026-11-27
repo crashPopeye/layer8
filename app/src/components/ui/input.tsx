@@ -16,4 +16,4 @@ function NativeSelect({ className, ...props }: React.ComponentProps<"select">) {
   return <select data-slot="select" className={cn(field, "h-8", className)} {...props} />
 }
 
-export { Input, NativeSelect, Textarea }
+export { field, Input, NativeSelect, Textarea }

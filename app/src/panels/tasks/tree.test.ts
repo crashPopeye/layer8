@@ -63,7 +63,7 @@ it("lists only projects among the app's children", async () => {
     actions: [],
     children: [
       { addr: "project:api", kind: "project", title: "api", children: [] },
-      { addr: "linear", kind: "linear", title: "Linear" },
+      { addr: "ui", kind: "ui", title: "UI" },
       { addr: "workflow:feature", kind: "workflow", title: "feature" },
     ],
   };

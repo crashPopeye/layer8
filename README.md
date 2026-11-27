@@ -23,7 +23,6 @@ flowchart LR
   D -- "stream-json / app-server" --> CL["claude / codex"]
   CL -- "MCP resources + do" --> D
   D -- "gh token" --> GH["GitHub: PRs, checks, releases"]
-  D --> LN["Linear"]
   RS -- "updates via /api/update/*" --> D
 ```
 
@@ -52,7 +51,6 @@ Everything is a node with an address (`app`, `project:api-gateway`, `task:eng-48
 | `internal/server` | loopback/origin/token guard, HTTP API, SSE hub |
 | `internal/mcp` | MCP streamable HTTP endpoint |
 | `internal/projects` | `app` and `project` kinds |
-| `internal/linear` | Linear GraphQL client, API key / OAuth PKCE, `linear` kind |
 | `internal/store` | SQLite + migrations |
 | `internal/config` | `~/.layer8` (or `LAYER8_HOME`), `config.json`, token |
 | `internal/ui` | `ui:layout`, `ui:theme`, `ui:plugins`: dock layout and presets, themes, JS plugins |
@@ -60,27 +58,15 @@ Everything is a node with an address (`app`, `project:api-gateway`, `task:eng-48
 | `app/` | the Tauri window: `src/` React UI and panels, `src-tauri/` Rust shell |
 | `e2e/` | the cut-over check against a real daemon and the real `claude` |
 
-## Linear
+## Links
 
-`linear` lists your open issues as `linear:<ID>` children; `linear:ENG-482` reads one issue (with a `markdown` rendering), and `layer8 do linear search query=upload` searches. Credentials live in `~/.layer8/linear.json` (0600).
-
-- **API key (default):** create one in Linear → Settings → Security & access → Personal API keys, then `layer8 do linear connect apiKey=lin_api_…`.
-- **Sign in with Linear (optional):** create your own OAuth app in Linear → Settings → API → OAuth applications with callback URL `http://127.0.0.1:7979/api/linear/callback`, put its client id in `~/.layer8/config.json` as `"linearClientId"`, restart the daemon, then `layer8 do linear connect-oauth` and open the returned URL. PKCE is used, so no client secret is stored.
-
-Tasks link to issues, they don't mirror them. A linked task's `linear` field is `{id, url, title, state}`; its state is re-read from Linear at most once a minute when the task is read.
-
-| Action | On | Does |
-|---|---|---|
-| `create-task-from-linear {issue}` | project | task titled like the issue, branch = Linear's branch name, `01-ticket.md` in the artifacts, linked |
-| `link-linear {issue}` / `refresh-linear` / `unlink-linear` | task | set, re-read or clear the link; root tasks (re)write `01-ticket.md` |
-| `create-subtask {…, linear: true}` | task | also creates a Linear sub-issue under the task's issue and links the sub-task to it |
-| `open-pr` | linked task | also attaches the pull request to the issue; a Linear failure is reported in the message, the PR still opens |
+A task can point at something outside layer8, such as an issue in a tracker: `layer8 do task:eng-482 set-link url=https://… label=ENG-482` sets its `link` field (`{url, label}`), shown as a pill in the top bar; an empty `url` clears it. Integrations with trackers ship as plugins (see below), not in the core.
 
 ## Customise
 
 - **Layout:** drag tabs to split or stack panels, or pop a group out into its own window. The layout is saved to `~/.layer8/ui.json` as it changes. ⌘K switches presets (Default, Focus, Review, Wide diff) and saves your own.
 - **Themes:** the Theme panel edits the shadcn tokens with a live preview, switches dark, light or system, and sets an accent. A theme is a JSON file of token overrides, `{"shared": {...}, "dark": {...}, "light": {...}}`, saved in `~/.layer8/themes/`.
-- **Plugins:** drop an ES module in `~/.layer8/plugins/<name>.js`, and it loads and hot-reloads in the window. It can register panels and ⌘K commands. `layer8 get ui:plugins` prints the SDK and each plugin's status. `examples/plugins/open-prs.js` lists the open PRs across tasks.
+- **Plugins:** drop an ES module in `~/.layer8/plugins/<name>.js`, and it loads and hot-reloads in the window. It can register panels and ⌘K commands. `layer8 get ui:plugins` prints the SDK and each plugin's status. `examples/plugins/open-prs.js` lists the open PRs across tasks; `examples/plugins/linear.js` lists your Linear issues with your own API key and starts a task from one (copy it into `~/.layer8/plugins/`).
 - **Keys:** ⌘K palette, ⌘N task, ⌘⇧N sub-task, ⌘T session, ⌘1–9 panels.
 
 ## Develop

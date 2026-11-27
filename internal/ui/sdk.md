@@ -35,10 +35,11 @@ export default function setup(sdk) {
 | `registerPanel({id, title, icon?, component, defaultPosition?})` | Adds a dock panel. `icon` is a lucide name or component; `defaultPosition` is `left`, `center`, `right` (default) or `right-bottom` |
 | `registerCommand({id, title, group?, run})` | Adds a ⌘K command |
 | `openPanel(id)` | Shows a panel |
+| `openUrl(url)` | Opens an https link in the default browser |
 | `notify(text, level = "info")` | Shows a toast; `level` is info, success, warning or error |
 | `theme.mode()` / `theme.token(name)` | The current colour scheme (`dark` or `light`) / the current value of a CSS token such as `primary` |
 
-`Node` is `{addr, kind, title, fields, children: [{addr, kind, title, status?, children?}], actions: [{name, help, args}]}`, the same JSON as `layer8://` resources. With depth 2, `app` lists projects with their tasks; a `task` node has `branch`, `status`, `pr` (`{number, url, state, checks…}` once opened) and `worktree` fields.
+`Node` is `{addr, kind, title, fields, children: [{addr, kind, title, status?, children?}], actions: [{name, help, args}]}`, the same JSON as `layer8://` resources. With depth 2, `app` lists projects with their tasks; a `task` node has `branch`, `status`, `pr` (`{number, url, state, checks…}` once opened), `link` (`{url, label}`, set with the task's `set-link` action) and `worktree` fields.
 
 ## Styling
 

@@ -155,7 +155,7 @@ func TestEndToEndWithFakeClaude(t *testing.T) {
 	for _, e := range c.events(s) {
 		types = append(types, string(e.Type))
 	}
-	if !slices.Equal(types, []string{"user", "system", "text", "result"}) {
+	if !slices.Equal(types, []string{"user", "delivered", "system", "text", "result"}) {
 		t.Fatalf("stored events = %v", types)
 	}
 

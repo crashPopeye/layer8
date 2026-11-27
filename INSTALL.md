@@ -38,7 +38,7 @@ Everything lives in `~/.layer8` (set `LAYER8_HOME` to move it):
 
 | Path | What |
 |---|---|
-| `config.json` | settings: `addr`, `maxSessions`, `apps`, `githubToken`, `autoApproveDo`, `linearClientId`, `updateRepo` |
+| `config.json` | settings: `addr`, `maxSessions`, `apps`, `githubToken`, `autoApproveDo`, `updateRepo` |
 | `token` | the API token the app, the CLI and agents use (0600) |
 | `layer8.db` | projects, tasks, sessions, transcripts, workflow runs, `actions_log` |
 | `tasks/<task>/` | each task tree's artifacts (ticket, research, plan, PR description) |
@@ -46,7 +46,6 @@ Everything lives in `~/.layer8` (set `LAYER8_HOME` to move it):
 | `workflows/*.yaml`, `plugins/*.js`, `themes/*.json`, `ui.json` | your workflows, panel plugins, themes and layout |
 | `plugin/` | the bundled layer8 Claude Code plugin, reinstalled at every daemon start |
 | `logs/daemon.log` | daemon log |
-| `linear.json` | Linear credentials (0600) |
 
 A `layer8.db` left by the pre-rebuild layer8 is moved to `layer8.db.legacy` on first start.
 

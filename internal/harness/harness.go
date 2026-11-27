@@ -13,9 +13,12 @@ type Harness interface {
 	Probe(ctx context.Context, cwd string) (Capabilities, error)
 }
 
-// Proc is one running agent process.
+// Proc is one running agent process. Send hands it a message, which it reports
+// with an EventDelivered once the agent has taken it in; until then SendNow can
+// make the agent take it in at once, cutting into the running turn.
 type Proc interface {
 	Send(msg UserMessage) error
+	SendNow(ctx context.Context, id string) error
 	Interrupt(ctx context.Context) error
 	Close(grace time.Duration)
 	Done() <-chan struct{}
@@ -38,8 +41,9 @@ type StartOptions struct {
 	Env                []string
 }
 
-// UserMessage is one user turn.
+// UserMessage is one user turn. ID names it in EventDelivered and SendNow.
 type UserMessage struct {
+	ID     string
 	Text   string
 	Images []Image
 	Files  []string
@@ -73,6 +77,8 @@ const (
 	EventResult     EventType = "result"
 	EventError      EventType = "error"
 	EventSystem     EventType = "system"
+	EventLimits     EventType = "limits"
+	EventDelivered  EventType = "delivered"
 )
 
 // Event is one transcript entry. Partial events are live fragments, such as text
@@ -81,6 +87,22 @@ type Event struct {
 	Type    EventType      `json:"type"`
 	Partial bool           `json:"partial,omitempty"`
 	Data    map[string]any `json:"data"`
+}
+
+// Tokens counts the tokens one turn used. Input excludes cached input.
+type Tokens struct {
+	Input      int `json:"input"`
+	Output     int `json:"output"`
+	CacheRead  int `json:"cacheRead"`
+	CacheWrite int `json:"cacheWrite"`
+}
+
+// Limit is how much of one account rate-limit window, such as "5h" or "weekly", is used.
+// ResetsAt is in Unix seconds. EventLimits carries them as Data["limits"].
+type Limit struct {
+	Window      string  `json:"window"`
+	UsedPercent float64 `json:"usedPercent"`
+	ResetsAt    int64   `json:"resetsAt,omitempty"`
 }
 
 // PermissionRequest asks whether the agent may run a tool.

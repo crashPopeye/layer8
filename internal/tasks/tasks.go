@@ -46,7 +46,7 @@ type Task struct {
 	Project     string
 	ProjectPath string
 	CreatedBy   string
-	Linear, PR  json.RawMessage
+	Link, PR    json.RawMessage
 	// Artifacts is the folder shared by every task in the tree.
 	Artifacts string
 }
@@ -98,6 +98,10 @@ func Register(t *tree.Tree, db *sql.DB, o Options) *Service {
 			{Name: "archive", Help: "Archive the task and its sub-tasks, removing their worktrees and keeping branches and artifacts", When: statusIn("active", "done"), Run: s.archive},
 			{Name: "open", Help: "Open the worktree in the terminal, the editor or Finder", When: statusIn("active", "done"), Run: s.open,
 				Args: json.RawMessage(`{"type":"object","required":["target"],"properties":{"target":{"enum":["terminal","editor","finder"]}}}`)},
+			{Name: "set-link", Help: "Link the task to a URL outside layer8, such as an issue; an empty url clears it", When: statusIn("active", "done"), Run: s.setLink,
+				Args: json.RawMessage(`{"type":"object","properties":{
+					"url":{"type":"string"},
+					"label":{"type":"string","description":"Short text shown for the link, such as an issue id; defaults to the url"}}}`)},
 		},
 	})
 	t.Register(tree.Kind{
@@ -125,7 +129,7 @@ func statusIn(statuses ...string) func(tree.Node) bool {
 	return func(n tree.Node) bool { return slices.Contains(statuses, n.Fields["status"].(string)) }
 }
 
-const taskQuery = `SELECT t.id, t.slug, t.title, t.branch, t.base_ref, t.worktree, t.status, t.created_by, t.linear, t.pr, p.name, p.path
+const taskQuery = `SELECT t.id, t.slug, t.title, t.branch, t.base_ref, t.worktree, t.status, t.created_by, t.link, t.pr, p.name, p.path
 	FROM tasks t JOIN projects p ON p.id = t.project_id `
 
 func (s *Service) query(ctx context.Context, where string, args ...any) ([]Task, error) {
@@ -137,12 +141,12 @@ func (s *Service) query(ctx context.Context, where string, args ...any) ([]Task,
 	var list []Task
 	for rows.Next() {
 		var t Task
-		var linear, pr sql.NullString
-		if err := rows.Scan(&t.ID, &t.Slug, &t.Title, &t.Branch, &t.Base, &t.Worktree, &t.Status, &t.CreatedBy, &linear, &pr, &t.Project, &t.ProjectPath); err != nil {
+		var link, pr sql.NullString
+		if err := rows.Scan(&t.ID, &t.Slug, &t.Title, &t.Branch, &t.Base, &t.Worktree, &t.Status, &t.CreatedBy, &link, &pr, &t.Project, &t.ProjectPath); err != nil {
 			return nil, err
 		}
-		if linear.Valid {
-			t.Linear = json.RawMessage(linear.String)
+		if link.Valid {
+			t.Link = json.RawMessage(link.String)
 		}
 		if pr.Valid {
 			t.PR = json.RawMessage(pr.String)
@@ -168,18 +172,26 @@ func (s *Service) Lookup(ctx context.Context, addr tree.Addr) (Task, error) {
 	return list[0], nil
 }
 
-// SetLinear stores the task's Linear link; nil clears it.
-func (s *Service) SetLinear(ctx context.Context, addr tree.Addr, link json.RawMessage) error {
-	t, err := s.Lookup(ctx, addr)
-	if err != nil {
-		return err
-	}
+// Link is a task's reference to something outside layer8, such as an issue in a tracker.
+type Link struct {
+	URL   string `json:"url"`
+	Label string `json:"label"`
+}
+
+func (s *Service) setLink(ctx context.Context, n tree.Node, args json.RawMessage, _ tree.Actor) (tree.Result, error) {
+	var l Link
+	json.Unmarshal(args, &l)
 	var value any
-	if link != nil {
-		value = string(link)
+	msg := fmt.Sprintf("%s has no link", n.Addr)
+	if l.URL != "" {
+		if l.Label == "" {
+			l.Label = l.URL
+		}
+		raw, _ := json.Marshal(l)
+		value, msg = string(raw), fmt.Sprintf("%s links to %s", n.Addr, l.URL)
 	}
-	_, err = s.db.ExecContext(ctx, `UPDATE tasks SET linear = ? WHERE id = ?`, value, t.ID)
-	return err
+	_, err := s.db.ExecContext(ctx, `UPDATE tasks SET link = ? WHERE slug = ?`, value, n.Fields["slug"])
+	return tree.Result{Message: msg}, err
 }
 
 // subtree returns the task with slug and all its descendants.
@@ -199,7 +211,7 @@ func (s *Service) get(ctx context.Context, a tree.Addr) (tree.Node, error) {
 	fields := map[string]any{
 		"slug": t.Slug, "branch": t.Branch, "base": t.Base, "status": t.Status, "worktree": t.Worktree,
 		"artifacts": t.Artifacts, "artifactFiles": files, "project": "project:" + t.Project, "parent": t.parent(),
-		"createdBy": t.CreatedBy, "linear": t.Linear, "pr": t.PR,
+		"createdBy": t.CreatedBy, "link": t.Link, "pr": t.PR,
 	}
 	if t.Status != "archived" {
 		if st, err := gitx.StatusOf(ctx, t.Worktree); err == nil {

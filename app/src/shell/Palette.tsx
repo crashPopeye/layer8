@@ -6,6 +6,7 @@ import { usePanels } from "@/dock/registry";
 import { setFocus, useFocus } from "@/lib/focus";
 import { buildPalette, commands, paletteNodes, type Item } from "@/lib/palette";
 import { useClient } from "@/lib/react";
+import { usePrefersDark } from "@/lib/theme";
 import { toast } from "./Toasts";
 
 let open = false;
@@ -27,6 +28,7 @@ export function Palette() {
   const client = useClient();
   const focus = useFocus();
   const panels = usePanels();
+  const prefersDark = usePrefersDark();
   const isOpen = useSyncExternalStore(
     (s) => {
       subscribers.add(s);
@@ -43,7 +45,7 @@ export function Palette() {
       if (!live) return;
       setItems(
         buildPalette(
-          { ...nodes, panels, commands: commands() },
+          { ...nodes, prefersDark, panels, commands: commands() },
           {
             focus: setFocus,
             openAction,
@@ -58,7 +60,7 @@ export function Palette() {
     return () => {
       live = false;
     };
-  }, [client, focus, panels, isOpen]);
+  }, [client, focus, panels, prefersDark, isOpen]);
 
   const groups = [...new Set(items.map((i) => i.group))];
   return (
