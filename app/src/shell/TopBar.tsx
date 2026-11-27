@@ -3,16 +3,17 @@ import { Moon, Search, Sun } from "lucide-react";
 import { Fragment, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { openPanel } from "@/dock/Dock";
-import { panels } from "@/dock/registry";
+import { usePanels } from "@/dock/registry";
 import { crumbTrail, type Crumb } from "@/lib/crumbs";
 import { crumbs, setFocus, useFocus } from "@/lib/focus";
 import { useClient, useNode } from "@/lib/react";
 import { openUrl } from "@/lib/tauri";
+import { resolveMode, usePrefersDark, type Mode } from "@/lib/theme";
 import type { Addr } from "@/lib/types";
-import { setTheme, storedTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import { linkOf, pillOf, rootOf } from "@/panels/linear/model";
 import { toneText } from "@/panels/pr/model";
+import { togglePalette } from "./Palette";
 import { WorkflowControl } from "./Workflow";
 
 /** Returns the breadcrumb of addr with node titles, falling back to address segments until they load. */
@@ -52,13 +53,12 @@ function LinearPill({ addr }: { addr: Addr }) {
 
 /** The window's title bar: breadcrumb of the focused node, panel launchers, theme switch and ⌘K. */
 export function TopBar() {
+  const client = useClient();
   const focus = useFocus();
-  const [theme, setThemeState] = useState(storedTheme);
-  const toggleTheme = () => {
-    const next = theme === "dark" ? "light" : "dark";
-    setTheme(next);
-    setThemeState(next);
-  };
+  const panels = usePanels().filter((p) => !p.plugin);
+  const mode = useNode("ui:theme", 0).node?.fields?.mode as Mode | undefined;
+  const dark = resolveMode(mode ?? "dark", usePrefersDark()) === "dark";
+  const toggleTheme = () => client.doOps([{ target: "ui:theme", action: "set", args: { mode: dark ? "light" : "dark" } }]);
   const parts = useCrumbs(focus);
 
   return (
@@ -85,15 +85,15 @@ export function TopBar() {
       {focus.startsWith("task:") && <LinearPill key={focus} addr={focus} />}
       <div data-tauri-drag-region className="flex-1 self-stretch" />
       <WorkflowControl />
-      {panels().map(({ id, title, icon: Icon }) => (
+      {panels.map(({ id, title, icon: Icon }) => (
         <Button key={id} variant="ghost" size="icon-sm" title={title} onClick={() => openPanel(id)}>
           <Icon />
         </Button>
       ))}
       <Button variant="ghost" size="icon-sm" title="Switch theme" onClick={toggleTheme}>
-        {theme === "dark" ? <Sun /> : <Moon />}
+        {dark ? <Sun /> : <Moon />}
       </Button>
-      <Button variant="outline" size="sm" className="h-7 text-muted-foreground" title="Command palette">
+      <Button variant="outline" size="sm" className="h-7 text-muted-foreground" title="Command palette" onClick={togglePalette}>
         <Search />
         <kbd className="font-mono text-[11px]">⌘K</kbd>
       </Button>

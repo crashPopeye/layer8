@@ -8,6 +8,7 @@ const shortcuts = [
   ["⌘N", "new task"],
   ["⌘⇧N", "sub-task"],
   ["⌘T", "new session"],
+  ["⌘1–9", "panels"],
   ["A/D", "allow · deny"],
 ];
 

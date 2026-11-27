@@ -33,6 +33,7 @@ Everything is a node with an address (`app`, `project:api-gateway`, `task:eng-48
 | `internal/linear` | Linear GraphQL client, API key / OAuth PKCE, `linear` kind |
 | `internal/store` | SQLite + migrations |
 | `internal/config` | `~/.layer8` (or `LAYER8_HOME`), `config.json`, token |
+| `internal/ui` | `ui:layout`, `ui:theme`, `ui:plugins`: dock layout and presets, themes, JS plugins |
 | `internal/daemon` | wiring, serve, launchd agent `dev.layer8.daemon` |
 
 ## Linear
@@ -50,6 +51,13 @@ Tasks link to issues, they don't mirror them. A linked task's `linear` field is 
 | `link-linear {issue}` / `refresh-linear` / `unlink-linear` | task | set, re-read or clear the link; root tasks (re)write `01-ticket.md` |
 | `create-subtask {…, linear: true}` | task | also creates a Linear sub-issue under the task's issue and links the sub-task to it |
 | `open-pr` | linked task | also attaches the pull request to the issue; a Linear failure is reported in the message, the PR still opens |
+
+## Customise
+
+- **Layout:** drag tabs to split or stack panels, or pop a group out into its own window. The layout is saved to `~/.layer8/ui.json` as it changes. ⌘K switches presets (Default, Focus, Review, Wide diff) and saves your own.
+- **Themes:** the Theme panel edits the shadcn tokens with a live preview, switches dark, light or system, and sets an accent. A theme is a JSON file of token overrides, `{"shared": {...}, "dark": {...}, "light": {...}}`, saved in `~/.layer8/themes/`.
+- **Plugins:** drop an ES module in `~/.layer8/plugins/<name>.js`, and it loads and hot-reloads in the window. It can register panels and ⌘K commands. `layer8 get ui:plugins` prints the SDK and each plugin's status. `examples/plugins/open-prs.js` lists the open PRs across tasks.
+- **Keys:** ⌘K palette, ⌘N task, ⌘⇧N sub-task, ⌘T session, ⌘1–9 panels.
 
 ## Develop
 

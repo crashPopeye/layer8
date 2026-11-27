@@ -1,4 +1,4 @@
-import type { FunctionComponent } from "react";
+import { useSyncExternalStore, type FunctionComponent } from "react";
 import type { LucideIcon } from "lucide-react";
 
 /** Where a panel lands in the default layout: one of the three columns, or under the right one. */
@@ -10,13 +10,27 @@ export interface PanelDef {
   icon: LucideIcon;
   component: FunctionComponent;
   defaultPosition: Slot;
+  /** The plugin that registered the panel; built-in panels have none. */
+  plugin?: string;
 }
 
-const registry = new Map<string, PanelDef>();
+let registry = new Map<string, PanelDef>();
+const subscribers = new Set<() => void>();
 
-/** Adds a panel to the dock, replacing any panel with the same id. */
-export function registerPanel(def: PanelDef) {
-  registry.set(def.id, def);
+function changed(next: Map<string, PanelDef>) {
+  registry = next;
+  subscribers.forEach((s) => s());
+}
+
+/** Adds a panel to the dock, replacing any panel with the same id, and returns the function that removes it. */
+export function registerPanel(def: PanelDef): () => void {
+  changed(new Map(registry).set(def.id, def));
+  return () => {
+    if (registry.get(def.id) !== def) return;
+    const next = new Map(registry);
+    next.delete(def.id);
+    changed(next);
+  };
 }
 
 /** Returns the registered panel with this id. */
@@ -27,6 +41,18 @@ export function panel(id: string): PanelDef | undefined {
 /** Returns every registered panel, in registration order. */
 export function panels(): PanelDef[] {
   return [...registry.values()];
+}
+
+/** Returns every registered panel and re-renders when one is added or removed. */
+export function usePanels(): PanelDef[] {
+  const map = useSyncExternalStore(
+    (s) => {
+      subscribers.add(s);
+      return () => subscribers.delete(s);
+    },
+    () => registry,
+  );
+  return [...map.values()];
 }
 
 type Direction = "left" | "right" | "above" | "below";
