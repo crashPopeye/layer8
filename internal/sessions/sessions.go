@@ -114,7 +114,7 @@ func Register(t *tree.Tree, db *sql.DB, ts *tasks.Service, o Options) *Manager {
 			{Name: "fork", Help: "Copy this conversation into a new session", When: resumable, Run: m.fork},
 			{Name: "open-terminal", Help: "Continue this conversation in the terminal", Run: m.openTerminal,
 				When: func(n tree.Node) bool {
-					return resumable(n) && n.Fields["harness"] == "claude" && statusIn("idle", "done", "failed")(n)
+					return resumable(n) && resumeCommand[n.Fields["harness"].(string)] != "" && statusIn("idle", "done", "failed")(n)
 				}},
 		},
 	})
@@ -386,7 +386,7 @@ func (m *Manager) openTerminal(ctx context.Context, n tree.Node, _ json.RawMessa
 	}
 	m.mu.Unlock()
 	script := filepath.Join(os.TempDir(), "layer8-"+n.Addr.Path()+".command")
-	body := fmt.Sprintf("#!/bin/zsh -l\ncd %s && exec claude --resume %s\n", quote(t.Worktree), quote(n.Fields["harnessSessionId"].(string)))
+	body := fmt.Sprintf("#!/bin/zsh -l\ncd %s && exec %s %s\n", quote(t.Worktree), resumeCommand[n.Fields["harness"].(string)], quote(n.Fields["harnessSessionId"].(string)))
 	if err := os.WriteFile(script, []byte(body), 0o700); err != nil {
 		return tree.Result{}, err
 	}
@@ -395,5 +395,8 @@ func (m *Manager) openTerminal(ctx context.Context, n tree.Node, _ json.RawMessa
 	}
 	return tree.Result{Message: "opened " + string(n.Addr) + " in the terminal"}, nil
 }
+
+// resumeCommand is the shell command that continues a harness's conversation by id.
+var resumeCommand = map[string]string{"claude": "claude --resume", "codex": "codex resume"}
 
 func quote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }

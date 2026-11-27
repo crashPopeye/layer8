@@ -19,6 +19,7 @@ import (
 	"github.com/crashPopeye/layer8/internal/github"
 	"github.com/crashPopeye/layer8/internal/harness"
 	"github.com/crashPopeye/layer8/internal/harness/claude"
+	"github.com/crashPopeye/layer8/internal/harness/codex"
 	"github.com/crashPopeye/layer8/internal/linear"
 	"github.com/crashPopeye/layer8/internal/mcp"
 	"github.com/crashPopeye/layer8/internal/projects"
@@ -49,7 +50,7 @@ func build(ctx context.Context, cfg config.Config, db *sql.DB, token, version st
 		plugins = []string{cfg.PluginDir}
 	}
 	ss := sessions.Register(t, db, ts, sessions.Options{
-		Harnesses: map[string]harness.Harness{"claude": claude.Harness{PluginDirs: plugins}},
+		Harnesses: map[string]harness.Harness{"claude": claude.Harness{PluginDirs: plugins}, "codex": codex.Harness{}},
 		Max:       cfg.MaxSessions, MCPURL: cfg.URL() + "/mcp", Token: token, AutoApproveDo: cfg.AutoApproveDo,
 		Terminal: cfg.Apps.Terminal, Publish: hub.Publish,
 	})

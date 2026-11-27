@@ -74,6 +74,8 @@ func fakeCodex(logPath string) {
 			ok(map[string]any{"thread": map[string]any{"id": "th-1"}, "model": "gpt-5"})
 		case "thread/resume":
 			ok(map[string]any{"thread": map[string]any{"id": m.Params.ThreadID}, "model": "gpt-5"})
+		case "thread/fork":
+			ok(map[string]any{"thread": map[string]any{"id": "th-fork"}, "model": "gpt-5"})
 		case "model/list":
 			if m.Params.Cursor == "" {
 				ok(map[string]any{"data": []any{map[string]any{"id": "gpt-5", "model": "gpt-5", "displayName": "GPT-5", "description": "Smart", "hidden": false, "isDefault": true,
@@ -310,6 +312,18 @@ func TestResume(t *testing.T) {
 	got := sent(t, log, "thread/resume")
 	if want := `{"approvalPolicy":"untrusted","config":{},"cwd":"` + cwd + `","sandbox":"workspace-write","threadId":"th-old"}`; len(got) != 1 || got[0] != want {
 		t.Fatalf("thread/resume = %q, want %s", got, want)
+	}
+}
+
+func TestFork(t *testing.T) {
+	h, log := fake(t)
+	rec := newRecorder(nil)
+	start(t, h, rec, harness.StartOptions{ResumeID: "th-old", Fork: true})
+	if init := rec.until(t, harness.EventSystem, 5*time.Second)[0].Data; init["session_id"] != "th-fork" {
+		t.Fatalf("init = %v", init)
+	}
+	if got := sent(t, log, "thread/fork"); len(got) != 1 || !strings.Contains(got[0], `"threadId":"th-old"`) {
+		t.Fatalf("thread/fork = %q", got)
 	}
 }
 

@@ -118,11 +118,14 @@ func threadParams(o harness.StartOptions) (string, map[string]any) {
 	if o.AppendSystemPrompt != "" {
 		params["developerInstructions"] = o.AppendSystemPrompt
 	}
-	if o.ResumeID != "" {
-		params["threadId"] = o.ResumeID
-		return "thread/resume", params
+	if o.ResumeID == "" {
+		return "thread/start", params
 	}
-	return "thread/start", params
+	params["threadId"] = o.ResumeID
+	if o.Fork {
+		return "thread/fork", params
+	}
+	return "thread/resume", params
 }
 
 func (h Harness) spawn(cwd string, extraEnv []string, sink harness.Sink) (*proc, error) {
