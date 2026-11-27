@@ -170,3 +170,12 @@
 .markdown :is(th, td) { border: 1px solid var(--border); padding: 3px 8px; }
 .markdown hr { border-color: var(--border); margin: 1em 0; }
 .markdown img { max-width: 100%; }
+
+.transcript .markdown {
+  padding: 0;
+  margin: 6px 0;
+}
+.transcript > * {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 40px;
+}

@@ -1,3 +1,4 @@
+import { mockSessions, startSession } from "./mock-sessions";
 import type { Action, Addr, Client, L8Event, Node, Op, Result, Summary } from "./types";
 
 const schema = (required: string[], properties: Record<string, unknown>) => ({ type: "object", required, properties });
@@ -100,6 +101,7 @@ export function mockClient(seed: Op[] = []): Client {
   const artifacts = new Map<string, { content: string; modified: string }>();
   const listeners = new Set<(e: L8Event) => void>();
   const emit = (addrs: Addr[]) => listeners.forEach((l) => l({ type: "node", data: { addrs: [...new Set(addrs)] } }));
+  const sessions = mockSessions((e) => listeners.forEach((l) => l(e)));
 
   const taskList = (where: (t: Task) => boolean): Summary[] =>
     [...tasks.values()].filter(where).map((t) => ({ addr: addrOf(t.slug), kind: "task", title: t.title, status: t.status }));
@@ -126,6 +128,8 @@ export function mockClient(seed: Op[] = []): Client {
         actions: [actions["create-task"]],
       };
     }
+    const session = kind === "session" ? sessions.get(addr) : undefined;
+    if (session) return session;
     const t = kind === "task" ? tasks.get(slugOf(addr)) : undefined;
     if (t) {
       const root = rootOf(t.slug);
@@ -146,8 +150,8 @@ export function mockClient(seed: Op[] = []): Client {
           parent: parentOf(t),
           createdBy: "user",
         },
-        children: t.slug === root ? [...subs, ...artifactList(root)] : subs,
-        actions: taskActions[t.status].map((a) => actions[a]),
+        children: [...subs, ...sessions.children(addr), ...(t.slug === root ? artifactList(root) : [])],
+        actions: [...taskActions[t.status].map((a) => actions[a]), ...(t.status === "active" ? [startSession] : [])],
       };
     }
     if (kind === "artifact" && tasks.has(path.split("/")[0])) {
@@ -180,7 +184,7 @@ export function mockClient(seed: Op[] = []): Client {
     return { ok: true, addr: addrOf(t.slug), message: `created ${addrOf(t.slug)} on branch ${t.branch} from ${t.base}` };
   }
 
-  function apply(n: Node, action: string, args: Record<string, string>): Result {
+  function apply(n: Node, action: string, args: Record<string, any>): Result {
     const ok = (message: string, addr = n.addr) => ({ ok: true, addr, message });
     const t = tasks.get(slugOf(n.addr));
     switch (action) {
@@ -234,7 +238,7 @@ export function mockClient(seed: Op[] = []): Client {
         artifacts.delete(n.addr.slice("artifact:".length));
         return ok(`deleted ${n.addr}`);
     }
-    return { ok: false, addr: n.addr, message: `${n.addr} has no action "${action}"` };
+    return sessions.run(n, action, args) ?? { ok: false, addr: n.addr, message: `${n.addr} has no action "${action}"` };
   }
 
   function run(op: Op): Result {
@@ -246,7 +250,7 @@ export function mockClient(seed: Op[] = []): Client {
     }
     if (!n.actions.some((a) => a.name === op.action))
       return { ok: false, addr: op.target, message: `${op.target} has no action "${op.action}"` };
-    const r = apply(n, op.action, (op.args ?? {}) as Record<string, string>);
+    const r = apply(n, op.action, (op.args ?? {}) as Record<string, any>);
     if (r.ok) emit(["app", n.addr, r.addr, ...[...projects.keys()].map((p) => `project:${p}`), ...[...tasks.keys()].map(addrOf)]);
     return r;
   }
@@ -282,8 +286,11 @@ export function mockClient(seed: Op[] = []): Client {
     mode: "mock",
     label: "mock",
     getNode: async (addr, depth = 1) => ({ ...get(addr), children: summaries(addr, depth) }),
-    getJSON: async (path) => {
-      throw new Error(`${path.split("?")[0]} needs a running layer8d`);
+    getJSON: async <T>(path: string) => {
+      if (path.startsWith("/api/files?")) return { files: Object.keys(demoFiles).sort(), truncated: false } as T;
+      const body = sessions.json(path);
+      if (body === undefined) throw new Error(`${path.split("?")[0]} needs a running layer8d`);
+      return body as T;
     },
     doOps: async (ops) => ops.map(run),
     raw: async (path) => raw(path),
@@ -338,6 +345,17 @@ export const demoSeed: Op[] = [
   { target: "task:eng-482", action: "create-subtask", args: { name: "pr2-middleware", base: "pr1-store" } },
   { target: "task:eng-482", action: "create-subtask", args: { name: "pr3-docs", base: "pr2-middleware" } },
   { target: "task:eng-482/pr1-store", action: "done" },
+  {
+    target: "task:eng-482/pr2-middleware",
+    action: "start-session",
+    args: {
+      prompt: "/implement-plan pr2 — follow the plan, stop before pushing.",
+      title: "Implement",
+      model: "opus",
+      effort: "high",
+      permissionMode: "acceptEdits",
+    },
+  },
   { target: "project:web-app", action: "create-task", args: { title: "ENG-501 Upload progress UI", slug: "eng-501" } },
   {
     target: "artifact:eng-482/01-ticket.md",

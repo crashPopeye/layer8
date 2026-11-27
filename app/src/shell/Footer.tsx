@@ -1,4 +1,6 @@
 import { useClient } from "@/lib/react";
+import { sessionCounts } from "@/panels/tasks/tree";
+import { useTree } from "@/panels/tasks/use-tree";
 import { cn } from "@/lib/utils";
 
 const shortcuts = [
@@ -9,9 +11,10 @@ const shortcuts = [
   ["A/D", "allow · deny"],
 ];
 
-/** The window's status bar: shortcuts and the daemon connection. */
+/** The window's status bar: shortcuts, session counts and the daemon connection. */
 export function Footer() {
   const client = useClient();
+  const { running, waiting, queued } = sessionCounts(useTree().tree);
   return (
     <footer className="flex h-[26px] shrink-0 items-center gap-3.5 border-t px-3 text-[11px] text-muted-foreground">
       {shortcuts.map(([key, what]) => (
@@ -20,6 +23,9 @@ export function Footer() {
         </span>
       ))}
       <span className="flex-1" />
+      <span className={cn(waiting > 0 && "text-wait")}>
+        {running} running · {waiting} waiting · {queued} queued
+      </span>
       <span className="flex items-center gap-1.5">
         <span className={cn("size-1.5 rounded-full", client.mode === "daemon" ? "bg-ok" : "bg-wait")} />
         {client.mode === "daemon" ? `layer8d ${client.label}` : "mock mode: no daemon"}

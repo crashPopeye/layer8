@@ -9,45 +9,26 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
-import { setFocus, useFocus } from "@/lib/focus";
-import { useClient } from "@/lib/react";
+import { setFocus, taskOf, useFocus } from "@/lib/focus";
+import { useClient, useNode } from "@/lib/react";
+import { newSession, pickSession } from "@/panels/session/target";
 import { pickFolder } from "@/lib/tauri";
 import type { Action, Addr } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { loadTree, rows, type TreeItem } from "./tree";
+import { liveStatus, rows, walk, type TreeItem } from "./tree";
+import { useTree } from "./use-tree";
 
 const dots: Record<string, string> = {
   active: "bg-primary",
   running: "bg-primary shadow-[0_0_0_3px] shadow-primary/20",
   waiting: "bg-wait",
+  queued: "border border-wait bg-transparent",
+  starting: "bg-primary",
+  idle: "bg-muted-foreground",
+  failed: "bg-bad",
   done: "bg-ok",
   archived: "border border-muted-foreground bg-transparent",
 };
-
-/** Reads the project → task → sub-task tree and reads it again when a project or task changes. */
-function useTree() {
-  const client = useClient();
-  const [state, setState] = useState<{ tree: TreeItem[]; error: Error | null }>({ tree: [], error: null });
-  useEffect(() => {
-    let latest = 0;
-    const load = () => {
-      const n = ++latest;
-      loadTree(client.getNode).then(
-        (tree) => n === latest && setState({ tree, error: null }),
-        (error: Error) => n === latest && setState((s) => ({ ...s, error })),
-      );
-    };
-    load();
-    const off = client.subscribe((e) => {
-      if (e.type === "node" && e.data.addrs.some((a) => a === "app" || a.startsWith("project:") || a.startsWith("task:"))) load();
-    });
-    return () => {
-      latest = -1;
-      off();
-    };
-  }, [client]);
-  return state;
-}
 
 /** The actions a node offers right now, read when its menu opens. */
 function NodeActions({ addr }: { addr: Addr }) {
@@ -77,6 +58,7 @@ function NodeActions({ addr }: { addr: Addr }) {
 function TreeRow({ item, depth, open, onToggle }: { item: TreeItem; depth: number; open: boolean; onToggle: () => void }) {
   const focus = useFocus();
   const project = item.kind === "project";
+  const status = liveStatus(item);
   const Chevron = open ? ChevronDown : ChevronRight;
   return (
     <ContextMenu>
@@ -106,7 +88,7 @@ function TreeRow({ item, depth, open, onToggle }: { item: TreeItem; depth: numbe
           {project ? (
             <FolderGit2 className="size-3.5" />
           ) : (
-            <span className={cn("size-[7px] shrink-0 rounded-full bg-muted-foreground", dots[item.status ?? ""])} />
+            <span className={cn("size-[7px] shrink-0 rounded-full bg-muted-foreground", dots[status ?? ""])} />
           )}
           <span className="truncate">{item.title}</span>
           <span className="ml-auto font-mono text-[11px] text-muted-foreground">
@@ -123,10 +105,12 @@ function TreeRow({ item, depth, open, onToggle }: { item: TreeItem; depth: numbe
               >
                 <Plus />
               </Button>
+            ) : status === "waiting" ? (
+              <span className="text-wait">approve</span>
             ) : !open && item.children.length ? (
               item.children.length
-            ) : item.status !== "active" ? (
-              item.status
+            ) : status !== "active" ? (
+              status
             ) : null}
           </span>
         </div>
@@ -184,6 +168,48 @@ export function TasksPanel() {
         <TreeRow key={item.addr} item={item} depth={depth} open={!collapsed.has(item.addr)} onToggle={() => toggle(item.addr)} />
       ))}
       {tree.length === 0 && !error && <p className="px-2 text-muted-foreground">No projects yet. Add a git repository with +.</p>}
+      <Sessions tree={tree} />
+    </div>
+  );
+}
+
+/** One session of the focused task: status, title, harness, model and cost. */
+function SessionRow({ addr, task }: { addr: Addr; task: Addr }) {
+  const { node } = useNode(addr, 0);
+  const focus = useFocus();
+  const f = node?.fields ?? {};
+  const cost = Number(f.costUsd ?? 0);
+  return (
+    <button
+      onClick={() => pickSession(addr, task)}
+      className={cn("flex w-full items-center gap-2 rounded-md px-2 py-1 text-left hover:bg-muted", focus === addr && "bg-muted")}
+    >
+      <span className={cn("size-[7px] shrink-0 rounded-full bg-muted-foreground", dots[String(f.status ?? "")])} />
+      <span className="truncate">{node?.title ?? addr}</span>
+      <span className="ml-auto shrink-0 font-mono text-[11px] text-muted-foreground">
+        {[f.harness, f.model, cost > 0 && `$${cost.toFixed(2)}`].filter(Boolean).join(" · ")}
+      </span>
+    </button>
+  );
+}
+
+/** The sessions of the focused task, with a button for a new one. */
+function Sessions({ tree }: { tree: TreeItem[] }) {
+  const task = taskOf(useFocus());
+  const item = task ? walk(tree).find((i) => i.addr === task) : undefined;
+  if (!task || !item) return null;
+  return (
+    <div className="mt-auto border-t pt-2">
+      <div className="flex items-center gap-1 px-1.5 text-[11px] text-muted-foreground">
+        <span className="flex-1 truncate">Sessions in {item.title}</span>
+        <Button variant="ghost" size="icon-xs" title="New session (⌘T)" onClick={newSession}>
+          <Plus />
+        </Button>
+      </div>
+      {item.sessions.map((s) => (
+        <SessionRow key={s.addr} addr={s.addr} task={task} />
+      ))}
+      {item.sessions.length === 0 && <p className="px-2 text-muted-foreground">No sessions yet.</p>}
     </div>
   );
 }

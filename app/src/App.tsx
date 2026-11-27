@@ -4,18 +4,21 @@ import { Dock } from "@/dock/Dock";
 import { newSubtask, newTask } from "@/lib/commands";
 import { useClient } from "@/lib/react";
 import { applyUi } from "@/lib/ui";
+import { newSession } from "@/panels/session/target";
 import { Footer } from "@/shell/Footer";
 import { TopBar } from "@/shell/TopBar";
 
 /** The main window: title bar, dock of panels, status bar. */
 export function App() {
   const client = useClient();
-  useEffect(() => client.subscribe((e) => e.type === "ui" && applyUi(e.data)), [client]);
+  useEffect(() => client.subscribe((e) => e.type === "ui" && applyUi(e.data, client)), [client]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!e.metaKey || e.key.toLowerCase() !== "n") return;
+      const key = e.key.toLowerCase();
+      if (!e.metaKey || (key !== "n" && key !== "t")) return;
       e.preventDefault();
-      if (e.shiftKey) newSubtask();
+      if (key === "t") newSession();
+      else if (e.shiftKey) newSubtask();
       else newTask(client);
     };
     window.addEventListener("keydown", onKey);

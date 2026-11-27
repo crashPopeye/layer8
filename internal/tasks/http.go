@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/crashPopeye/layer8/internal/gitx"
 	"github.com/crashPopeye/layer8/internal/tree"
 )
 
@@ -36,6 +37,32 @@ func (s *Service) ServeFile(w http.ResponseWriter, r *http.Request) {
 	}
 	serveFrom(w, r, t.Worktree, rel)
 }
+
+// ServeFiles lists the worktree's tracked and untracked, not ignored, files: GET /api/files?task=<addr>.
+func (s *Service) ServeFiles(w http.ResponseWriter, r *http.Request) {
+	t, err := s.Lookup(r.Context(), tree.Addr(r.URL.Query().Get("task")))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	out, err := gitx.RunEnv(r.Context(), t.Worktree, nil, "ls-files", "-z", "--cached", "--others", "--exclude-standard")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	files := slices.Compact(strings.Split(strings.TrimSuffix(out, "\x00"), "\x00"))
+	if out == "" {
+		files = []string{}
+	}
+	truncated := len(files) > maxFiles
+	if truncated {
+		files = files[:maxFiles]
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"files": files, "truncated": truncated})
+}
+
+const maxFiles = 20000
 
 // entry is one line of a folder listing.
 type entry struct {

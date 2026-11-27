@@ -3,9 +3,11 @@ import type { Addr } from "./types";
 
 let focus: Addr = "app";
 const subscribers = new Set<() => void>();
+const sessionTasks = new Map<Addr, Addr>();
 
-/** Sets the node every panel follows. */
-export function setFocus(addr: Addr) {
+/** Sets the node every panel follows; a session comes with the task it runs in. */
+export function setFocus(addr: Addr, task?: Addr) {
+  if (task) sessionTasks.set(addr, task);
   if (addr === focus) return;
   focus = addr;
   subscribers.forEach((s) => s());
@@ -33,9 +35,10 @@ export function crumbs(addr: Addr): string[] {
   return i < 0 ? [] : addr.slice(i + 1).split("/").filter(Boolean);
 }
 
-/** Returns the task a node belongs to: the task itself, or the root task of an artifact. */
+/** Returns the task a node belongs to: the task itself, the root task of an artifact, or a focused session's task. */
 export function taskOf(addr: Addr): Addr | null {
   if (addr.startsWith("task:")) return addr;
+  if (addr.startsWith("session:")) return sessionTasks.get(addr) ?? null;
   if (addr.startsWith("artifact:")) return `task:${addr.slice("artifact:".length).split("/")[0]}`;
   return null;
 }

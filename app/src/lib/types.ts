@@ -42,10 +42,19 @@ export type UiCommand =
   | { verb: "focus"; addr: Addr }
   | { verb: string; [k: string]: unknown };
 
+/** One session transcript entry as `/api/sessions/{id8}/events` and the `session` SSE event carry it. Partial events have no id. */
+export interface SessionEvent {
+  id?: number;
+  type: "user" | "text" | "thinking" | "tool_use" | "tool_result" | "approval" | "result" | "error" | "system";
+  at?: string;
+  partial?: boolean;
+  data: Record<string, any>;
+}
+
 /** One message from the daemon's `/api/events` stream. */
 export type L8Event =
   | { type: "node"; data: { addrs: Addr[] } }
-  | { type: "session"; data: { session: string; events: unknown[] } }
+  | { type: "session"; data: { session: string; events: SessionEvent[] } }
   | { type: "ui"; data: UiCommand }
   | { type: "toast"; data: { level: string; text: string } };
 
