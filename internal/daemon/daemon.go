@@ -64,6 +64,7 @@ func build(ctx context.Context, cfg config.Config, db *sql.DB, token, version st
 		Routes: map[string]http.Handler{
 			"GET /api/artifact":              http.HandlerFunc(ts.ServeArtifact),
 			"GET /api/file":                  http.HandlerFunc(ts.ServeFile),
+			"GET /api/files":                 http.HandlerFunc(ts.ServeFiles),
 			"GET /api/diff":                  diff.Handler(t),
 			"GET /api/sessions/{id8}/events": http.HandlerFunc(ss.ServeEvents),
 			"GET /api/capabilities":          http.HandlerFunc(ss.ServeCapabilities),

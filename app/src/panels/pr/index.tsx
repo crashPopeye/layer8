@@ -1,6 +1,6 @@
 import { GitPullRequest, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useFocus } from "@/lib/focus";
+import { taskOf, useFocus } from "@/lib/focus";
 import { useAction, useNode } from "@/lib/react";
 import { openUrl } from "@/lib/tauri";
 import type { Addr } from "@/lib/types";
@@ -9,8 +9,8 @@ import { checkTone, prOf, prView, toneText, type Label, type Tone } from "./mode
 
 /** The focused task's pull request: state, checks with failing logs, review threads, and the fix buttons. */
 export function PRPanel() {
-  const focus = useFocus();
-  if (!focus.startsWith("task:")) {
+  const task = taskOf(useFocus());
+  if (!task) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 text-muted-foreground">
         <GitPullRequest className="size-5" />
@@ -18,7 +18,7 @@ export function PRPanel() {
       </div>
     );
   }
-  return <PullRequest key={focus} addr={focus} />;
+  return <PullRequest key={task} addr={task} />;
 }
 
 const dot: Record<Tone, string> = { ok: "bg-ok", bad: "bg-bad", wait: "bg-wait", primary: "bg-primary", muted: "bg-muted-foreground" };

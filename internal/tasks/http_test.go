@@ -95,6 +95,8 @@ func TestDaemonEndToEnd(t *testing.T) {
 		{"/api/file?task=task:eng-482&path=/etc/hosts", "", "", 400},
 		{"/api/file?task=task:eng-482&path=hosts", "", "", 400},
 		{"/api/file?task=task:ghost&path=x", "", "", 404},
+		{"/api/files?task=task:eng-482", "application/json", `{"files":["hosts","src/main.go"],"truncated":false}`, 200},
+		{"/api/files?task=task:ghost", "", "", 404},
 	}
 	for _, c := range cases {
 		code, ctype, body := get(c.path)

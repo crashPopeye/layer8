@@ -1,7 +1,7 @@
 import { Columns2, GitCompare, RefreshCw, Rows2 } from "lucide-react";
 import { Fragment, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { useFocus } from "@/lib/focus";
+import { taskOf, useFocus } from "@/lib/focus";
 import { useAction, useClient, useNode } from "@/lib/react";
 import type { Addr } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -9,8 +9,8 @@ import { diffPath, splitRows, statusLetter, type Diff, type DiffFile, type DiffM
 
 /** The focused task's diff against its base, with Commit, Push and Open PR. */
 export function ChangesPanel() {
-  const focus = useFocus();
-  if (!focus.startsWith("task:")) {
+  const task = taskOf(useFocus());
+  if (!task) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 text-muted-foreground">
         <GitCompare className="size-5" />
@@ -18,7 +18,7 @@ export function ChangesPanel() {
       </div>
     );
   }
-  return <Changes key={focus} addr={focus} />;
+  return <Changes key={task} addr={task} />;
 }
 
 const modes: [DiffMode, string][] = [
