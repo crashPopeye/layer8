@@ -1,0 +1,16 @@
+description: Research, write the PRD and the technical design, plan, implement and open the pull requests
+steps:
+  - name: research
+    skill: layer8:research
+  - name: prd
+    skill: layer8:prd
+  - name: tdd
+    skill: layer8:tdd
+  - name: plan
+    skill: layer8:plan
+  - name: implement
+    skill: layer8:implement
+    fanout: subtasks
+  - name: describe-pr
+    skill: layer8:describe-pr
+    fanout: subtasks

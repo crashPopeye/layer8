@@ -1,0 +1,5 @@
+{
+  "name": "layer8",
+  "version": "0.1.0",
+  "description": "Workflow skills for the layer8 desktop app: research, plan into sub-tasks, implement, review and ship, all driving the app through its node tree."
+}

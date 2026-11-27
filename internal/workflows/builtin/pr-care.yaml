@@ -1,0 +1,6 @@
+description: Get an open pull request green, then answer its review comments
+steps:
+  - name: fix-ci
+    skill: layer8:fix-ci
+  - name: address-comments
+    skill: layer8:address-comments

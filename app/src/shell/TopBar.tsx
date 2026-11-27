@@ -9,6 +9,7 @@ import { crumbs, setFocus, useFocus } from "@/lib/focus";
 import { useClient } from "@/lib/react";
 import { setTheme, storedTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
+import { WorkflowControl } from "./Workflow";
 
 /** Returns the breadcrumb of addr with node titles, falling back to address segments until they load. */
 function useCrumbs(addr: string): Crumb[] {
@@ -60,6 +61,7 @@ export function TopBar() {
         ))}
       </nav>
       <div data-tauri-drag-region className="flex-1 self-stretch" />
+      <WorkflowControl />
       {panels().map(({ id, title, icon: Icon }) => (
         <Button key={id} variant="ghost" size="icon-sm" title={title} onClick={() => openPanel(id)}>
           <Icon />

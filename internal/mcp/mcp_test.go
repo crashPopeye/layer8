@@ -100,7 +100,7 @@ func TestMCPReadAndDo(t *testing.T) {
 		Actions []struct{ Name string }
 	}
 	json.Unmarshal([]byte(contents[0].(map[string]any)["text"].(string)), &app)
-	if app.Addr != "app" || len(app.Actions) != 1 || app.Actions[0].Name != "add-project" {
+	if app.Addr != "app" || len(app.Actions) == 0 || app.Actions[0].Name != "add-project" {
 		t.Fatalf("app = %+v", app)
 	}
 	if text := contents[1].(map[string]any)["text"].(string); !strings.Contains(text, "add-project {path, name?}") {
@@ -143,7 +143,7 @@ func TestMCPReadAndDo(t *testing.T) {
 	for _, r := range list["resources"].([]any) {
 		uris += r.(map[string]any)["uri"].(string) + " "
 	}
-	if uris != "layer8://app layer8://here layer8://project/api-gateway layer8://linear " {
+	if uris != "layer8://app layer8://here layer8://project/api-gateway layer8://linear layer8://workflow/feature layer8://workflow/pr-care layer8://workflow/product-feature layer8://workflow/quick-fix " {
 		t.Fatalf("resources = %q", uris)
 	}
 

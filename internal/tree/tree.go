@@ -180,6 +180,11 @@ func (t *Tree) Kinds() []string {
 	return names
 }
 
+// Actions returns every action declared on a registered kind, whether or not it is valid now.
+func (t *Tree) Actions(kind string) []Action {
+	return slices.Clone(t.kind(kind).Actions)
+}
+
 func (t *Tree) kind(name string) *Kind {
 	k, ok := t.kinds[name]
 	if !ok {
