@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/crashPopeye/layer8/internal/config"
+	"github.com/crashPopeye/layer8/internal/linear"
 	"github.com/crashPopeye/layer8/internal/mcp"
 	"github.com/crashPopeye/layer8/internal/projects"
 	"github.com/crashPopeye/layer8/internal/server"
@@ -30,14 +31,18 @@ func Build(ctx context.Context, cfg config.Config, db *sql.DB, token, version st
 	projects.Register(t, db, version)
 	ts := tasks.Register(t, db, tasks.Options{Home: cfg.Home, Apps: cfg.Apps})
 	go ts.Watch(ctx, 2*time.Second)
+	linearCallback := linear.Register(t, linear.New(cfg.Path("linear.json"), cfg.LinearClientID), cfg.URL()+linearCallbackPath)
 	return server.New(server.Options{
 		Tree: t, Hub: hub, Token: token, Version: version, MCP: mcp.New(t, hub, version),
 		Routes: map[string]http.Handler{
 			"GET /api/artifact": http.HandlerFunc(ts.ServeArtifact),
 			"GET /api/file":     http.HandlerFunc(ts.ServeFile),
 		},
+		Public: map[string]http.Handler{"GET " + linearCallbackPath: linearCallback},
 	})
 }
+
+const linearCallbackPath = "/api/linear/callback"
 
 // Serve runs the daemon until SIGINT or SIGTERM.
 func Serve(cfg config.Config, version string) error {

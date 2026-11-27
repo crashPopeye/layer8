@@ -24,6 +24,8 @@ type Options struct {
 	MCP     http.Handler
 	// Routes are extra token-protected handlers keyed by ServeMux pattern.
 	Routes map[string]http.Handler
+	// Public maps route patterns to handlers served without the API token, such as OAuth callbacks.
+	Public map[string]http.Handler
 }
 
 // New returns the daemon's root handler.
@@ -39,6 +41,9 @@ func New(o Options) http.Handler {
 	mux.Handle("/mcp", requireToken(o.Token, o.MCP))
 	for pattern, h := range o.Routes {
 		mux.Handle(pattern, requireToken(o.Token, h))
+	}
+	for pattern, h := range o.Public {
+		mux.Handle(pattern, h)
 	}
 	return guard(mux)
 }
