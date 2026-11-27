@@ -69,7 +69,7 @@ function Tool({ item, answer, pending }: { item: ToolItem; answer: Answer; pendi
           ) : null}
         </span>
       </button>
-      {diff && <MiniDiff name={item.name} input={item.input} max={open ? 400 : 12} />}
+      {diff && (item.result || open) && <MiniDiff name={item.name} input={item.input} max={open ? 400 : 12} />}
       {open && (
         <div className="mt-1 grid gap-1">
           {!diff && (
