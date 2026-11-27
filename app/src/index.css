@@ -1,0 +1,132 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "dockview-react/dist/styles/dockview.css";
+
+@custom-variant dark (&:is([data-theme="dark"] *));
+
+:root,
+[data-theme="dark"] {
+  color-scheme: dark;
+  --radius: 0.625rem;
+  --background: #0b0b0e;
+  --foreground: #ececf1;
+  --card: #121217;
+  --card-foreground: #ececf1;
+  --popover: #121217;
+  --popover-foreground: #ececf1;
+  --primary: #a78bfa;
+  --primary-foreground: #140b2a;
+  --secondary: #1a1a21;
+  --secondary-foreground: #ececf1;
+  --muted: #1a1a21;
+  --muted-foreground: #8b8b99;
+  --accent: #1a1a21;
+  --accent-foreground: #ececf1;
+  --destructive: #f87171;
+  --border: #24242d;
+  --input: #24242d;
+  --ring: #a78bfa;
+  --ok: #4ade80;
+  --wait: #facc15;
+  --bad: #f87171;
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+  --background: #ffffff;
+  --foreground: #09090b;
+  --card: #fafafa;
+  --card-foreground: #09090b;
+  --popover: #ffffff;
+  --popover-foreground: #09090b;
+  --primary: #7c3aed;
+  --primary-foreground: #fafafa;
+  --secondary: #f4f4f5;
+  --secondary-foreground: #18181b;
+  --muted: #f4f4f5;
+  --muted-foreground: #71717a;
+  --accent: #f4f4f5;
+  --accent-foreground: #18181b;
+  --destructive: #dc2626;
+  --border: #e4e4e7;
+  --input: #e4e4e7;
+  --ring: #7c3aed;
+  --ok: #16a34a;
+  --wait: #ca8a04;
+  --bad: #dc2626;
+}
+
+@theme inline {
+  --font-sans: ui-sans-serif, -apple-system, "Inter", system-ui, sans-serif;
+  --font-mono: ui-monospace, "JetBrains Mono", "SF Mono", monospace;
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-ok: var(--ok);
+  --color-wait: var(--wait);
+  --color-bad: var(--bad);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-background text-foreground font-sans text-[13px] antialiased;
+    margin: 0;
+    user-select: none;
+  }
+}
+
+.dockview-theme-abyss-spaced {
+  --dv-spacing-padding: 6px;
+  --dv-border-radius: var(--radius);
+  --dv-tabs-and-actions-container-height: 34px;
+  --dv-tab-margin-block: 0.25rem;
+  --dv-group-view-background-color: var(--background);
+  --dv-tabs-and-actions-container-background-color: var(--card);
+  --dv-activegroup-visiblepanel-tab-background-color: var(--muted);
+  --dv-activegroup-hiddenpanel-tab-background-color: transparent;
+  --dv-inactivegroup-visiblepanel-tab-background-color: var(--muted);
+  --dv-inactivegroup-hiddenpanel-tab-background-color: transparent;
+  --dv-activegroup-visiblepanel-tab-color: var(--foreground);
+  --dv-activegroup-hiddenpanel-tab-color: var(--muted-foreground);
+  --dv-inactivegroup-visiblepanel-tab-color: var(--foreground);
+  --dv-inactivegroup-hiddenpanel-tab-color: var(--muted-foreground);
+  --dv-tab-divider-color: transparent;
+  --dv-separator-border: var(--border);
+  --dv-paneview-header-border-color: var(--border);
+  --dv-drag-over-background-color: color-mix(in srgb, var(--primary) 20%, transparent);
+  --dv-active-sash-color: var(--primary);
+  --dv-edge-dock-indicator-color: var(--primary);
+  --dv-icon-hover-background-color: var(--muted);
+  --dv-floating-border: 1px solid var(--border);
+}
+
+.dockview-theme-abyss-spaced .dv-groupview {
+  border: 1px solid var(--border);
+}
