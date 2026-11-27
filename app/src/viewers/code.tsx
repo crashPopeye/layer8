@@ -1,9 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import type { Lines } from "@/comments/model";
 
 const maxHighlighted = 300_000;
 
-/** Highlights code with shiki in both themes, showing it plain until the grammar loads. */
-export function Code({ text, lang }: { text: string; lang: string }) {
+/** Highlights code with shiki in both themes, showing it plain until the grammar loads; marked lines are highlighted. */
+export function Code({ text, lang, marks }: { text: string; lang: string; marks?: Lines[] }) {
+  const ref = useRef<HTMLDivElement>(null);
   const [html, setHtml] = useState<{ text: string; html: string } | null>(null);
   useEffect(() => {
     if (text.length > maxHighlighted) return;
@@ -24,10 +26,23 @@ export function Code({ text, lang }: { text: string; lang: string }) {
       live = false;
     };
   }, [text, lang]);
-  if (html?.text === text) return <div className="code select-text" dangerouslySetInnerHTML={{ __html: html.html }} />;
+  const highlighted = html?.text === text;
+  useLayoutEffect(() => {
+    ref.current?.querySelectorAll<HTMLElement>(".line").forEach((el, i) => {
+      el.dataset.line = String(i + 1);
+      el.classList.toggle("commented", !!marks?.some((m) => m.line <= i + 1 && i + 1 <= m.lineEnd));
+    });
+  }, [highlighted, html, marks]);
+  if (highlighted) return <div ref={ref} className="code select-text" dangerouslySetInnerHTML={{ __html: html.html }} />;
   return (
-    <div className="code select-text">
-      <pre>{text}</pre>
+    <div ref={ref} className="code select-text">
+      <pre>
+        {text.split("\n").map((line, i) => (
+          <span key={i} className="line">
+            {line + "\n"}
+          </span>
+        ))}
+      </pre>
     </div>
   );
 }

@@ -70,3 +70,20 @@ export const statusLetter: Record<DiffFile["status"], string> = { added: "A", de
 export function diffPath(task: string, mode: DiffMode): string {
   return `/api/diff?task=${encodeURIComponent(task)}&mode=${mode}`;
 }
+
+/** Where a diff comment hangs: deleted lines by their base line number, every other line by its current one. */
+export interface Anchor {
+  side: "old" | "new";
+  line: number;
+}
+
+/** The anchor of a diff line. */
+export function anchorOf(l: Line): Anchor {
+  return l.kind === "del" ? { side: "old", line: l.old! } : { side: "new", line: l.new! };
+}
+
+/** The distinct anchors of a side-by-side row. */
+export function rowAnchors(r: SplitRow): Anchor[] {
+  const list = [r.left, r.right].filter((l): l is Line => !!l).map(anchorOf);
+  return list.filter((a, i) => list.findIndex((b) => b.side === a.side && b.line === a.line) === i);
+}

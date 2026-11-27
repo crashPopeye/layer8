@@ -179,3 +179,8 @@
   content-visibility: auto;
   contain-intrinsic-size: auto 40px;
 }
+
+.commented {
+  background: color-mix(in oklab, var(--primary) 14%, transparent);
+  box-shadow: inset 2px 0 0 var(--primary);
+}
