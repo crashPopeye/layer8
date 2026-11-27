@@ -1,11 +1,7 @@
-/build/out/
-
-/dist/
+/bin/
+/.dev-home/
 *.test
 .DS_Store
-/src-tauri/target/
-/src-tauri/gen/
-/src-tauri/binaries/layer8d-*
 
 # Riptide artifacts (cloud-synced)
 .humanlayer/tasks/

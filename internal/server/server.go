@@ -1,190 +1,178 @@
-// Package server exposes the core API to the desktop shell, the CLI and (for
-// development) a browser, over HTTP on 127.0.0.1 with a bearer token.
+// Package server serves the HTTP API, the live event stream and the MCP endpoint on loopback.
 package server
 
 import (
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"io/fs"
-	"log"
 	"net"
 	"net/http"
+	"slices"
+	"strconv"
 	"strings"
-	"sync"
-	"time"
+
+	"github.com/crashPopeye/layer8/internal/tree"
 )
 
-// Origins of the Tauri webview on macOS (tauri://) and other platforms.
-var tauriOrigins = map[string]bool{
-	"tauri://localhost":       true,
-	"http://tauri.localhost":  true,
-	"https://tauri.localhost": true,
+// Options configures New.
+type Options struct {
+	Tree    *tree.Tree
+	Hub     *Hub
+	Token   string
+	Version string
+	MCP     http.Handler
 }
 
-type Server struct {
-	token string
-	port  int
-	api   http.Handler
-	ui    fs.FS
-	Hub   *Hub
+// New returns the daemon's root handler.
+func New(o Options) http.Handler {
+	authed := func(h http.HandlerFunc) http.Handler { return requireToken(o.Token, h) }
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/version", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]string{"version": o.Version})
+	})
+	mux.Handle("GET /api/node", authed(func(w http.ResponseWriter, r *http.Request) { getNode(o.Tree, w, r) }))
+	mux.Handle("POST /api/do", authed(func(w http.ResponseWriter, r *http.Request) { do(o.Tree, w, r) }))
+	mux.Handle("GET /api/events", authed(func(w http.ResponseWriter, r *http.Request) { events(o.Hub, w, r) }))
+	mux.Handle("/mcp", requireToken(o.Token, o.MCP))
+	return guard(mux)
 }
 
-func New(token string, port int, api http.Handler, ui fs.FS, hub *Hub) *Server {
-	return &Server{token: token, port: port, api: api, ui: ui, Hub: hub}
-}
-
-func isLocalHost(hostport string) bool {
-	host, _, err := net.SplitHostPort(hostport)
+func getNode(t *tree.Tree, w http.ResponseWriter, r *http.Request) {
+	by, err := actor(r)
 	if err != nil {
-		host = hostport
+		writeError(w, http.StatusBadRequest, err)
+		return
 	}
-	return host == "127.0.0.1" || host == "localhost" || host == "::1"
-}
-
-// originAllowed: no Origin (CLI, curl), the Tauri webview, or this server itself (browser dev).
-func (s *Server) originAllowed(origin string) bool {
-	if origin == "" || tauriOrigins[origin] {
-		return true
+	addr := tree.Addr(r.URL.Query().Get("addr"))
+	if addr == "" {
+		addr = "app"
 	}
-	for _, h := range []string{"127.0.0.1", "localhost"} {
-		if origin == fmt.Sprintf("http://%s:%d", h, s.port) {
-			return true
+	depth := 1
+	if d := r.URL.Query().Get("depth"); d != "" {
+		if depth, err = strconv.Atoi(d); err != nil || depth < 0 || depth > 2 {
+			writeError(w, http.StatusBadRequest, errors.New("depth must be 0, 1 or 2"))
+			return
 		}
 	}
-	return false
-}
-
-func (s *Server) tokenOK(r *http.Request) bool {
-	given := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-	if given == "" {
-		// EventSource can't set headers; it passes the token in the query instead.
-		given = r.URL.Query().Get("token")
+	n, err := t.Get(r.Context(), by, addr, depth)
+	switch {
+	case errors.Is(err, tree.ErrNotFound):
+		writeError(w, http.StatusNotFound, err)
+	case err != nil:
+		writeError(w, http.StatusBadRequest, err)
+	default:
+		writeJSON(w, http.StatusOK, n)
 	}
-	return given != "" && subtle.ConstantTimeCompare([]byte(given), []byte(s.token)) == 1
 }
 
-func jsonError(w http.ResponseWriter, status int, msg string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
+func do(t *tree.Tree, w http.ResponseWriter, r *http.Request) {
+	by, err := actor(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	var body struct {
+		Ops []tree.Op `json:"ops"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"results": t.Do(r.Context(), by, body.Ops)})
 }
 
-// Handler: static UI at / (public: it contains no data), everything under /api/
-// behind the token. Foreign Host headers are refused to block DNS rebinding,
-// foreign Origins to block other web pages.
-func (s *Server) Handler() http.Handler {
-	static := http.FileServerFS(s.ui)
+func events(hub *Hub, w http.ResponseWriter, r *http.Request) {
+	ch, cancel := hub.Subscribe()
+	defer cancel()
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	rc := http.NewResponseController(w)
+	fmt.Fprint(w, ": connected\n\n")
+	rc.Flush()
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case e, ok := <-ch:
+			if !ok {
+				return
+			}
+			data, _ := json.Marshal(e.Data)
+			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", e.Name, data)
+			rc.Flush()
+		}
+	}
+}
+
+// actor reads X-Layer8-Actor: empty or "user", "cli", or "plugin:<name>".
+func actor(r *http.Request) (tree.Actor, error) {
+	h := r.Header.Get("X-Layer8-Actor")
+	a := tree.ParseActor(h)
+	switch {
+	case h == "":
+		return tree.Actor{Kind: "user"}, nil
+	case (a.Kind == "user" || a.Kind == "cli") && a.ID == "", a.Kind == "plugin" && a.ID != "":
+		return a, nil
+	}
+	return tree.Actor{}, fmt.Errorf("X-Layer8-Actor %q is not allowed", h)
+}
+
+var loopbackHosts = []string{"127.0.0.1", "localhost", "::1"}
+
+var appOrigins = []string{"tauri://localhost", "http://tauri.localhost", "http://localhost:5173"}
+
+// guard rejects non-loopback hosts and foreign origins, and answers CORS for the app's origins.
+func guard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !isLocalHost(r.Host) {
-			jsonError(w, http.StatusForbidden, "forbidden host")
+		host, _, err := net.SplitHostPort(r.Host)
+		if err != nil {
+			host = r.Host
+		}
+		if !slices.Contains(loopbackHosts, host) {
+			http.Error(w, "forbidden host", http.StatusForbidden)
 			return
 		}
 		origin := r.Header.Get("Origin")
-		if !s.originAllowed(origin) {
-			jsonError(w, http.StatusForbidden, "forbidden origin")
+		if origin != "" && origin != "http://"+r.Host && !slices.Contains(appOrigins, origin) {
+			http.Error(w, "forbidden origin", http.StatusForbidden)
 			return
 		}
 		if origin != "" {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Layer8-Actor, Mcp-Session-Id, Mcp-Protocol-Version")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE")
 			w.Header().Set("Vary", "Origin")
-			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE")
 		}
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-		if !strings.HasPrefix(r.URL.Path, "/api/") {
-			w.Header().Set("Cache-Control", "no-cache")
-			static.ServeHTTP(w, r)
-			return
-		}
-		// Linear's OAuth redirect can't carry the token; its one-time state authenticates it.
-		if !s.tokenOK(r) && r.URL.Path != "/api/linear/callback" {
-			jsonError(w, http.StatusUnauthorized, "bad or missing token")
-			return
-		}
-		if r.URL.Path == "/api/events" {
-			s.Hub.serve(w, r)
-			return
-		}
-		s.api.ServeHTTP(w, r)
+		next.ServeHTTP(w, r)
 	})
 }
 
-// ---- server-sent events
-
-type Hub struct {
-	mu      sync.Mutex
-	clients map[chan []byte]struct{}
-}
-
-func NewHub() *Hub { return &Hub{clients: map[chan []byte]struct{}{}} }
-
-// Emit sends a named event to every connected client. Slow clients are dropped
-// rather than allowed to block the daemon; they reconnect and refetch state.
-func (h *Hub) Emit(name string, data any) {
-	b, err := json.Marshal(data)
-	if err != nil {
-		log.Printf("sse marshal %s: %v", name, err)
-		return
-	}
-	msg := []byte(fmt.Sprintf("event: %s\ndata: %s\n\n", name, b))
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	for c := range h.clients {
-		select {
-		case c <- msg:
-		default:
-			delete(h.clients, c)
-			close(c)
+// requireToken accepts "Authorization: Bearer <token>" or "?token=<token>".
+func requireToken(token string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if !ok {
+			got = r.URL.Query().Get("token")
 		}
-	}
-}
-
-func (h *Hub) serve(w http.ResponseWriter, r *http.Request) {
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		jsonError(w, http.StatusInternalServerError, "streaming unsupported")
-		return
-	}
-	c := make(chan []byte, 256)
-	h.mu.Lock()
-	h.clients[c] = struct{}{}
-	h.mu.Unlock()
-	defer func() {
-		h.mu.Lock()
-		if _, ok := h.clients[c]; ok {
-			delete(h.clients, c)
-			close(c)
-		}
-		h.mu.Unlock()
-	}()
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("X-Accel-Buffering", "no")
-	fmt.Fprint(w, ": connected\n\n")
-	flusher.Flush()
-	ping := time.NewTicker(20 * time.Second)
-	defer ping.Stop()
-	for {
-		select {
-		case <-r.Context().Done():
+		if subtle.ConstantTimeCompare([]byte(got), []byte(token)) != 1 {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
-		case msg, ok := <-c:
-			if !ok {
-				return
-			}
-			if _, err := w.Write(msg); err != nil {
-				return
-			}
-			flusher.Flush()
-		case <-ping.C:
-			if _, err := fmt.Fprint(w, ": ping\n\n"); err != nil {
-				return
-			}
-			flusher.Flush()
 		}
-	}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func writeJSON(w http.ResponseWriter, code int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	json.NewEncoder(w).Encode(v)
+}
+
+func writeError(w http.ResponseWriter, code int, err error) {
+	writeJSON(w, code, map[string]string{"error": err.Error()})
 }
