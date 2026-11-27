@@ -3,6 +3,7 @@ package update_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,10 +12,10 @@ import (
 	"github.com/crashPopeye/layer8/internal/update"
 )
 
-func fakeGitHub(t *testing.T, released bool) *httptest.Server {
+func fakeGitHub(t *testing.T, released bool, auth string) *httptest.Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /repos/o/r/releases/latest", func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer gh-token" {
+		if r.Header.Get("Authorization") != auth {
 			http.Error(w, "no auth", http.StatusUnauthorized)
 			return
 		}
@@ -43,9 +44,10 @@ func fakeGitHub(t *testing.T, released bool) *httptest.Server {
 	return gh
 }
 
-func proxy(gh *httptest.Server) http.Handler {
-	p := &update.Proxy{API: gh.URL, Repo: "o/r", Base: "http://127.0.0.1:7979", HTTP: gh.Client(),
-		Token: func(context.Context) (string, error) { return "gh-token", nil }}
+func withToken(context.Context) (string, error) { return "gh-token", nil }
+
+func proxy(gh *httptest.Server, token func(context.Context) (string, error)) http.Handler {
+	p := &update.Proxy{API: gh.URL, Repo: "o/r", Base: "http://127.0.0.1:7979", HTTP: gh.Client(), Token: token}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/update/latest.json", p.ServeManifest)
 	mux.HandleFunc("GET /api/update/asset/{id}", p.ServeAsset)
@@ -60,7 +62,7 @@ func get(h http.Handler, path string) (int, string) {
 }
 
 func TestManifestRewritesAssetsToTheDaemon(t *testing.T) {
-	h := proxy(fakeGitHub(t, true))
+	h := proxy(fakeGitHub(t, true, "Bearer gh-token"), withToken)
 
 	if code, _ := get(h, "/api/update/asset/12"); code != http.StatusNotFound {
 		t.Fatalf("asset before any manifest: %d, want 404", code)
@@ -88,7 +90,29 @@ func TestManifestRewritesAssetsToTheDaemon(t *testing.T) {
 }
 
 func TestNoReleaseIsNoUpdate(t *testing.T) {
-	if code, body := get(proxy(fakeGitHub(t, false)), "/api/update/latest.json"); code != http.StatusNoContent {
+	if code, body := get(proxy(fakeGitHub(t, false, "Bearer gh-token"), withToken), "/api/update/latest.json"); code != http.StatusNoContent {
 		t.Fatalf("no release: %d %s, want 204", code, body)
+	}
+}
+
+func TestManifestWithoutTokenIsAnonymous(t *testing.T) {
+	noToken := func(context.Context) (string, error) { return "", errors.New("no GitHub token") }
+	h := proxy(fakeGitHub(t, true, ""), noToken)
+
+	code, body := get(h, "/api/update/latest.json")
+	if code != http.StatusOK {
+		t.Fatalf("manifest: %d %s", code, body)
+	}
+	var m struct {
+		Platforms map[string]struct{ URL string }
+	}
+	json.Unmarshal([]byte(body), &m)
+	for _, key := range []string{"darwin-aarch64", "darwin-x86_64"} {
+		if got := m.Platforms[key].URL; got != "http://127.0.0.1:7979/api/update/asset/12" {
+			t.Errorf("%s url = %q", key, got)
+		}
+	}
+	if code, body := get(h, "/api/update/asset/12"); code != http.StatusOK || body != "bundle" {
+		t.Errorf("asset: %d %q", code, body)
 	}
 }
