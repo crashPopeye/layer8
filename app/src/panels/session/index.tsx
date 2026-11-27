@@ -3,7 +3,6 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, menuLabel } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { taskOf, useFocus } from "@/lib/focus";
 import { useClient, useNode } from "@/lib/react";
 import type { Addr, Node } from "@/lib/types";
 import { cn } from "@/lib/utils";
