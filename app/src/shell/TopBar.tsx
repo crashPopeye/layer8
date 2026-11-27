@@ -1,12 +1,31 @@
 import { isTauri } from "@tauri-apps/api/core";
 import { Moon, Search, Sun } from "lucide-react";
-import { Fragment, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { openPanel } from "@/dock/Dock";
 import { panels } from "@/dock/registry";
+import { crumbTrail, type Crumb } from "@/lib/crumbs";
 import { crumbs, setFocus, useFocus } from "@/lib/focus";
+import { useClient } from "@/lib/react";
 import { setTheme, storedTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
+
+/** Returns the breadcrumb of addr with node titles, falling back to address segments until they load. */
+function useCrumbs(addr: string): Crumb[] {
+  const client = useClient();
+  const [trail, setTrail] = useState<{ addr: string; crumbs: Crumb[] } | null>(null);
+  useEffect(() => {
+    let live = true;
+    const load = () => crumbTrail(client.getNode, addr).then((c) => live && setTrail({ addr, crumbs: c }), () => {});
+    load();
+    const off = client.subscribe((e) => e.type === "node" && e.data.addrs.includes(addr) && load());
+    return () => {
+      live = false;
+      off();
+    };
+  }, [client, addr]);
+  return trail?.addr === addr ? trail.crumbs : crumbs(addr).map((title) => ({ addr, title }));
+}
 
 /** The window's title bar: breadcrumb of the focused node, panel launchers, theme switch and ⌘K. */
 export function TopBar() {
@@ -17,7 +36,7 @@ export function TopBar() {
     setTheme(next);
     setThemeState(next);
   };
-  const parts = crumbs(focus);
+  const parts = useCrumbs(focus);
 
   return (
     <header
@@ -31,7 +50,12 @@ export function TopBar() {
         {parts.map((p, i) => (
           <Fragment key={i}>
             <span>/</span>
-            <span className={cn(i === parts.length - 1 && "font-semibold text-foreground")}>{p}</span>
+            <button
+              className={cn("hover:text-foreground", i === parts.length - 1 && "font-semibold text-foreground")}
+              onClick={() => setFocus(p.addr)}
+            >
+              {p.title}
+            </button>
           </Fragment>
         ))}
       </nav>

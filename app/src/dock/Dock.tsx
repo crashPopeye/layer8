@@ -35,6 +35,7 @@ export function Dock() {
       onReady={({ api }) => {
         dock = api;
         for (const slot of slotOrder) panels().filter((d) => d.defaultPosition === slot).forEach((d) => openPanel(d.id));
+        for (const slot of slotOrder) api.getPanel(panels().find((d) => d.defaultPosition === slot)?.id ?? "")?.api.setActive();
         const groups = groupsBySlot(api);
         for (const [slot, width] of Object.entries(widths)) groups[slot as Slot]?.api.setSize({ width });
       }}

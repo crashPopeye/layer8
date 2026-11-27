@@ -130,3 +130,43 @@
 .dockview-theme-abyss-spaced .dv-groupview {
   border: 1px solid var(--border);
 }
+
+[data-theme="dark"] .shiki,
+[data-theme="dark"] .shiki span {
+  color: var(--shiki-dark);
+}
+.shiki span {
+  color: var(--shiki-light);
+}
+.code pre {
+  margin: 0;
+  padding: 10px 12px;
+  font: 12px/1.6 var(--font-mono);
+  background: transparent !important;
+  white-space: pre;
+}
+
+.markdown {
+  padding: 4px 14px 14px;
+  line-height: 1.6;
+}
+.markdown :is(h1, h2, h3, h4) {
+  margin: 1em 0 0.4em;
+  font-weight: 600;
+}
+.markdown h1 { font-size: 1.4em; }
+.markdown h2 { font-size: 1.2em; }
+.markdown h3 { font-size: 1.05em; }
+.markdown :is(p, ul, ol, table, blockquote) { margin: 0 0 0.75em; }
+.markdown :is(ul, ol) { padding-left: 1.4em; }
+.markdown ul { list-style: disc; }
+.markdown ol { list-style: decimal; }
+.markdown li:has(> input[type="checkbox"]) { list-style: none; margin-left: -1.2em; }
+.markdown a { color: var(--primary); text-decoration: underline; }
+.markdown blockquote { border-left: 2px solid var(--border); padding-left: 10px; color: var(--muted-foreground); }
+.markdown :not(pre) > code { font: 0.92em var(--font-mono); background: var(--muted); border-radius: 4px; padding: 1px 4px; }
+.markdown .code { background: var(--muted); border-radius: 8px; margin: 0 0 0.75em; overflow: auto; }
+.markdown table { border-collapse: collapse; }
+.markdown :is(th, td) { border: 1px solid var(--border); padding: 3px 8px; }
+.markdown hr { border-color: var(--border); margin: 1em 0; }
+.markdown img { max-width: 100%; }

@@ -63,4 +63,6 @@ export interface Client {
   /** Reads a JSON endpoint of the daemon such as `/api/diff?task=…`. */
   getJSON<T>(path: string): Promise<T>;
   subscribe(listener: (e: L8Event) => void): () => void;
+  /** Fetches raw content from a daemon path such as `/api/artifact?addr=…`. */
+  raw(path: string): Promise<Blob>;
 }
