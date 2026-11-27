@@ -1,4 +1,4 @@
-import { useSyncExternalStore, type FunctionComponent } from "react";
+import { useMemo, useSyncExternalStore, type FunctionComponent } from "react";
 import type { LucideIcon } from "lucide-react";
 
 /** Where a panel lands in the default layout: one of the three columns, or under the right one. */
@@ -52,7 +52,7 @@ export function usePanels(): PanelDef[] {
     },
     () => registry,
   );
-  return [...map.values()];
+  return useMemo(() => [...map.values()], [map]);
 }
 
 type Direction = "left" | "right" | "above" | "below";

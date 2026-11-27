@@ -1,14 +1,11 @@
 import { isTauri } from "@tauri-apps/api/core";
-import { Moon, Search, Sun } from "lucide-react";
-import { Fragment, useEffect, useState } from "react";
+import { Search, X } from "lucide-react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { openPanel } from "@/dock/Dock";
-import { usePanels } from "@/dock/registry";
 import { crumbTrail, type Crumb } from "@/lib/crumbs";
-import { crumbs, setFocus, useFocus } from "@/lib/focus";
+import { closeTab, crumbs, setFocus, tabOf, useFocus, useTabs, type Tab } from "@/lib/focus";
 import { useClient, useNode } from "@/lib/react";
 import { openUrl } from "@/lib/tauri";
-import { resolveMode, usePrefersDark, type Mode } from "@/lib/theme";
 import type { Addr } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { togglePalette } from "./Palette";
@@ -54,14 +51,62 @@ function LinkPill({ addr }: { addr: Addr }) {
   );
 }
 
-/** The window's title bar: breadcrumb of the focused node, panel launchers, theme switch and ⌘K. */
+/** One open task or session: click focuses where it was left, middle-click or × closes it. */
+function TabItem({ tab, active }: { tab: Tab; active: boolean }) {
+  const title = useNode(tab.key, 0).node?.title ?? crumbs(tab.key).at(-1) ?? tab.key;
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (active) ref.current?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+  }, [active]);
+  return (
+    <div
+      ref={ref}
+      role="tab"
+      aria-selected={active}
+      title={tab.addr}
+      onMouseDown={(e) => e.button === 1 && e.preventDefault()}
+      onAuxClick={(e) => e.button === 1 && closeTab(tab.key)}
+      className={cn(
+        "group flex h-7 max-w-[180px] shrink-0 items-center rounded-md border border-transparent text-[12px]",
+        active ? "border-border bg-muted text-foreground" : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+      )}
+    >
+      <button className="min-w-0 truncate py-1 pr-1 pl-2.5" onClick={() => setFocus(tab.addr)}>
+        {title}
+      </button>
+      <button
+        aria-label={`Close ${title}`}
+        className={cn(
+          "mr-1 grid size-4 shrink-0 place-items-center rounded-sm hover:bg-foreground/10",
+          !active && "opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
+        )}
+        onClick={() => closeTab(tab.key)}
+      >
+        <X className="size-3" />
+      </button>
+    </div>
+  );
+}
+
+/** The open tasks and sessions as tabs, scrolling sideways when they overflow; empty room drags the window. */
+function Tabs() {
+  const tabs = useTabs();
+  const active = tabOf(useFocus());
+  return (
+    <div data-tauri-drag-region className="flex min-w-0 flex-1 items-center self-stretch">
+      <div data-tauri-drag-region className="flex-1 self-stretch" />
+      <div role="tablist" aria-label="Open tasks" className="flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:none]">
+        {tabs.map((t) => (
+          <TabItem key={t.key} tab={t} active={t.key === active} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** The window's title bar: breadcrumb of the focused node, open tabs, workflow control and ⌘K. */
 export function TopBar() {
-  const client = useClient();
   const focus = useFocus();
-  const panels = usePanels().filter((p) => !p.plugin);
-  const mode = useNode("ui:theme", 0).node?.fields?.mode as Mode | undefined;
-  const dark = resolveMode(mode ?? "dark", usePrefersDark()) === "dark";
-  const toggleTheme = () => client.doOps([{ target: "ui:theme", action: "set", args: { mode: dark ? "light" : "dark" } }]);
   const parts = useCrumbs(focus);
 
   return (
@@ -69,7 +114,7 @@ export function TopBar() {
       data-tauri-drag-region
       className={cn("flex h-[42px] shrink-0 items-center gap-2 border-b pr-3", isTauri() ? "pl-[84px]" : "pl-3")}
     >
-      <nav className="flex items-center gap-1.5 text-muted-foreground">
+      <nav className="flex shrink-0 items-center gap-1.5 text-muted-foreground">
         <button className="hover:text-foreground" onClick={() => setFocus("app")}>
           layer8
         </button>
@@ -86,16 +131,8 @@ export function TopBar() {
         ))}
       </nav>
       {focus.startsWith("task:") && <LinkPill key={focus} addr={focus} />}
-      <div data-tauri-drag-region className="flex-1 self-stretch" />
+      <Tabs />
       <WorkflowControl />
-      {panels.map(({ id, title, icon: Icon }) => (
-        <Button key={id} variant="ghost" size="icon-sm" title={title} onClick={() => openPanel(id)}>
-          <Icon />
-        </Button>
-      ))}
-      <Button variant="ghost" size="icon-sm" title="Switch theme" onClick={toggleTheme}>
-        {dark ? <Sun /> : <Moon />}
-      </Button>
       <Button variant="outline" size="sm" className="h-7 text-muted-foreground" title="Command palette" onClick={togglePalette}>
         <Search />
         <kbd className="font-mono text-[11px]">⌘K</kbd>
