@@ -38,8 +38,9 @@ export interface Result {
 }
 
 export type UiCommand =
-  | { verb: "open-panel"; panel: string }
+  | { verb: "open-panel"; panel: string; position?: string }
   | { verb: "focus"; addr: Addr }
+  | { verb: "preset"; name: string; layout?: unknown }
   | { verb: string; [k: string]: unknown };
 
 /** One session transcript entry as `/api/sessions/{id8}/events` and the `session` SSE event carry it. Partial events have no id. */
@@ -68,7 +69,8 @@ export interface Client {
   mode: "daemon" | "mock";
   label: string;
   getNode(addr: Addr, depth?: Depth): Promise<Node>;
-  doOps(ops: Op[]): Promise<Result[]>;
+  /** Runs ops as actor: `user` by default, or `plugin:<name>`. */
+  doOps(ops: Op[], actor?: string): Promise<Result[]>;
   /** Reads a JSON endpoint of the daemon such as `/api/diff?task=…`. */
   getJSON<T>(path: string): Promise<T>;
   subscribe(listener: (e: L8Event) => void): () => void;

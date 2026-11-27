@@ -28,11 +28,12 @@ import (
 	"github.com/crashPopeye/layer8/internal/store"
 	"github.com/crashPopeye/layer8/internal/tasks"
 	"github.com/crashPopeye/layer8/internal/tree"
+	"github.com/crashPopeye/layer8/internal/ui"
 	"github.com/crashPopeye/layer8/internal/workflows"
 	"github.com/crashPopeye/layer8/plugin"
 )
 
-// Build assembles the tree, its kinds and the HTTP handler, and watches artifact and workflow folders until ctx ends.
+// Build assembles the tree, its kinds and the HTTP handler, and watches artifact, workflow and plugin folders until ctx ends.
 func Build(ctx context.Context, cfg config.Config, db *sql.DB, token, version string) http.Handler {
 	_, h := build(ctx, cfg, db, token, version)
 	return h
@@ -62,6 +63,8 @@ func build(ctx context.Context, cfg config.Config, db *sql.DB, token, version st
 	linear.RegisterTasks(t, lc, ts)
 	wf := workflows.Register(t, db, workflows.Options{Dir: cfg.Path("workflows")})
 	go wf.Watch(ctx, 2*time.Second)
+	uis := ui.Register(t, ui.Options{Home: cfg.Home, Publish: hub.Publish})
+	go uis.Watch(ctx, time.Second)
 	return t, server.New(server.Options{
 		Tree: t, Hub: hub, Token: token, Version: version, MCP: mcp.New(t, hub, version),
 		Routes: map[string]http.Handler{
@@ -71,6 +74,7 @@ func build(ctx context.Context, cfg config.Config, db *sql.DB, token, version st
 			"GET /api/diff":                  diff.Handler(t),
 			"GET /api/sessions/{id8}/events": http.HandlerFunc(ss.ServeEvents),
 			"GET /api/capabilities":          http.HandlerFunc(ss.ServeCapabilities),
+			"GET /api/plugins/{file}":        http.HandlerFunc(uis.ServePlugin),
 		},
 		Public: map[string]http.Handler{"GET " + linearCallbackPath: linearCallback},
 	})

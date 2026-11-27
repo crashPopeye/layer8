@@ -8,12 +8,12 @@ export interface DaemonInfo {
 /** Returns a Client that talks to a running layer8d over HTTP and SSE. */
 export function httpClient({ url, token }: DaemonInfo): Client {
   const base = url.replace(/\/$/, "");
-  const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json", "X-Layer8-Actor": "user" };
+  const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
   const listeners = new Set<(e: L8Event) => void>();
   let source: EventSource | null = null;
 
-  async function call<T>(path: string, init?: RequestInit): Promise<T> {
-    const res = await fetch(base + path, { ...init, headers });
+  async function call<T>(path: string, init?: RequestInit, actor = "user"): Promise<T> {
+    const res = await fetch(base + path, { ...init, headers: { ...headers, "X-Layer8-Actor": actor } });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(body.error ?? `${res.status} ${res.statusText}`);
     return body as T;
@@ -35,8 +35,8 @@ export function httpClient({ url, token }: DaemonInfo): Client {
     getNode: (addr, depth = 1) =>
       call(`/api/node?addr=${encodeURIComponent(addr)}&depth=${depth}`),
     getJSON: (path) => call(path),
-    doOps: async (ops: Op[]) =>
-      (await call<{ results: Result[] }>("/api/do", { method: "POST", body: JSON.stringify({ ops }) })).results,
+    doOps: async (ops: Op[], actor?: string) =>
+      (await call<{ results: Result[] }>("/api/do", { method: "POST", body: JSON.stringify({ ops }) }, actor)).results,
     async raw(path) {
       const res = await fetch(base + path, { headers: { Authorization: headers.Authorization } });
       if (!res.ok) throw new Error((await res.text()).trim() || `${res.status} ${res.statusText}`);

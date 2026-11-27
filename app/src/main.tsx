@@ -3,11 +3,11 @@ import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { connect } from "./lib/connect";
 import { ClientProvider } from "./lib/react";
-import { setTheme, storedTheme } from "./lib/theme";
+import { restoreTheme } from "./lib/theme";
 import "./panels";
 import "./index.css";
 
-setTheme(storedTheme());
+restoreTheme();
 
 connect().then((client) =>
   createRoot(document.getElementById("root")!).render(
