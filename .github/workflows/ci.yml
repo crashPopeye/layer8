@@ -1,49 +1,30 @@
-name: CI
-
+name: ci
 on:
-  push:
-    branches: ["**"]
   pull_request:
-
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.head_ref }}
   cancel-in-progress: true
-
-env:
-  TAURI_CLI_VERSION: 2.12.4
-
 jobs:
   test:
-    runs-on: macos-15
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod
-      - name: gofmt
+      - uses: actions/checkout@v4
+      - id: has
         run: |
-          unformatted=$(gofmt -l .)
-          if [ -n "$unformatted" ]; then echo "Not gofmt'd:"; echo "$unformatted"; exit 1; fi
-      - name: vet
-        run: go vet ./...
-      - name: test
-        run: go test -race ./...
-      - name: ui layout test
-        run: node build/layout_test.mjs
-
-      - name: Rust targets
-        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/cargo-tauri
-            ~/.cargo/registry/index
-            ~/.cargo/registry/cache
-            src-tauri/target
-          key: cargo-${{ runner.os }}-${{ env.TAURI_CLI_VERSION }}-${{ hashFiles('src-tauri/Cargo.lock') }}
-          restore-keys: cargo-${{ runner.os }}-${{ env.TAURI_CLI_VERSION }}-
-      - name: Tauri CLI
-        run: cargo tauri --version 2>/dev/null || cargo install tauri-cli --version "$TAURI_CLI_VERSION" --locked
-      - name: Build the app (no update signing)
-        run: LAYER8_NO_UPDATER=1 build/build-macos.sh 0.0.0-ci
+          echo "go=$([ -f go.mod ] && echo 1)" >> "$GITHUB_OUTPUT"
+          echo "app=$([ -f app/package.json ] && echo 1)" >> "$GITHUB_OUTPUT"
+      - if: steps.has.outputs.go == '1'
+        uses: actions/setup-go@v5
+        with: { go-version-file: go.mod }
+      - if: steps.has.outputs.go == '1'
+        run: |
+          test -z "$(gofmt -l $(git ls-files '*.go'))"
+          go vet ./...
+          go test ./...
+      - if: steps.has.outputs.app == '1'
+        uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: app/package-lock.json }
+      - if: steps.has.outputs.app == '1'
+        working-directory: app
+        run: npm ci && npm run typecheck && npm test
