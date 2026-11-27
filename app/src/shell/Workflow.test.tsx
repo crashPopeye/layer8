@@ -27,6 +27,9 @@ function fakeClient(task: Node) {
     getJSON: async () => {
       throw new Error("unused");
     },
+    raw: async () => {
+      throw new Error("unused");
+    },
     doOps: async (batch) => {
       ops.push(...batch);
       return batch.map((op) => ({ ok: true, addr: op.target }));
