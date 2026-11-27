@@ -64,13 +64,14 @@ it("lists the valid workflows and runs the chosen one on the focused task, with 
     children: [],
     actions: [{ name: "run-workflow", help: "" }],
   });
-  const select = await screen.findByLabelText("Run workflow");
-  await waitFor(() =>
-    expect([...select.querySelectorAll("option")].map((o) => o.textContent)).toEqual(["Workflow…", "feature", "quick-fix"]),
-  );
-
+  const select = await screen.findByRole("button", { name: "Run workflow" });
+  expect(select.textContent).toBe("Workflow…");
   fireEvent.click(screen.getByTitle(/Autopilot/));
-  fireEvent.change(select, { target: { value: "quick-fix" } });
+  fireEvent.keyDown(select, { key: "Enter" });
+  await waitFor(() =>
+    expect(screen.getAllByRole("menuitemradio").map((o) => o.textContent)).toEqual(["feature", "quick-fix"]),
+  );
+  fireEvent.click(screen.getByRole("menuitemradio", { name: "quick-fix" }));
 
   await waitFor(() =>
     expect(ops).toEqual([{ target: "task:feat", action: "run-workflow", args: { workflow: "quick-fix", autopilot: true } }]),

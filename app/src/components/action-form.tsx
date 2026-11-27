@@ -1,7 +1,8 @@
 import { useEffect, useState, useSyncExternalStore, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
-import { Input, NativeSelect, Textarea } from "@/components/ui/input";
+import { Input, Textarea } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import { setFocus } from "@/lib/focus";
 import { useClient } from "@/lib/react";
 import { argsFrom, fieldsOf, type Values } from "@/lib/schema";
@@ -46,12 +47,14 @@ export function ActionForm({
               onChange={(e) => set(f.name, e.target.checked)}
             />
           ) : f.kind === "enum" ? (
-            <NativeSelect value={String(values[f.name] ?? "")} onChange={(e) => set(f.name, e.target.value)} autoFocus={i === 0}>
-              <option value="" />
-              {f.options!.map((o) => (
-                <option key={String(o)}>{String(o)}</option>
-              ))}
-            </NativeSelect>
+            <Select
+              aria-label={f.name}
+              value={String(values[f.name] ?? "")}
+              placeholder="Choose…"
+              options={[...(f.required ? [] : [["", "none"] as const]), ...f.options!.map(String)]}
+              onValueChange={(v) => set(f.name, v)}
+              autoFocus={i === 0}
+            />
           ) : f.kind === "json" || f.name === "content" ? (
             <Textarea
               value={String(values[f.name] ?? "")}
@@ -149,11 +152,7 @@ function ActionRequest({ req }: { req: Request }) {
       <DialogTitle className="font-mono text-sm">{req.action}</DialogTitle>
       <DialogDescription className="text-[12px] text-muted-foreground">{action?.help ?? target}</DialogDescription>
       {req.targets.length > 1 && (
-        <NativeSelect value={target} onChange={(e) => setTarget(e.target.value)} aria-label="target">
-          {req.targets.map((t) => (
-            <option key={t}>{t}</option>
-          ))}
-        </NativeSelect>
+        <Select aria-label="target" value={target} options={req.targets} onValueChange={setTarget} />
       )}
       {action === null && (
         <p className="text-[12px] text-bad">
