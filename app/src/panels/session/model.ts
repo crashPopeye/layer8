@@ -8,7 +8,7 @@ export interface Image {
 }
 
 export type Item =
-  | { kind: "user"; key: string; n: number; text: string; files?: string[]; images?: Image[]; by?: string }
+  | { kind: "user"; key: string; id?: string; delivered?: boolean; text: string; files?: string[]; images?: Image[]; by?: string }
   | { kind: "text" | "thinking"; key: string; text: string; streaming?: boolean }
   | ToolItem
   | ApprovalItem
@@ -40,13 +40,11 @@ export interface Transcript {
   items: Item[];
   /** For each tool use id, the chain of tool ids that contains it. */
   paths: Record<string, string[]>;
-  users: number;
-  results: number;
   lastId: number;
   partials: number;
 }
 
-export const empty: Transcript = { items: [], paths: {}, users: 0, results: 0, lastId: 0, partials: 0 };
+export const empty: Transcript = { items: [], paths: {}, lastId: 0, partials: 0 };
 
 function update(items: Item[], path: string[], fn: (list: Item[]) => Item[]): Item[] {
   if (!path.length) return fn(items);
@@ -117,15 +115,11 @@ export function reduce(t: Transcript, e: SessionEvent): Transcript {
       );
     }
     case "user":
-      return {
-        ...edit((list) => [...list, { kind: "user", key, n: t.users, text: d.text ?? "", files: d.files, images: d.images, by: d.by }], []),
-        users: t.users + 1,
-      };
+      return edit((list) => [...list, { kind: "user", key, id: d.id, text: d.text ?? "", files: d.files, images: d.images, by: d.by }], []);
+    case "delivered":
+      return edit((list) => list.map((it) => (it.kind === "user" && it.id === d.id ? { ...it, delivered: true } : it)), []);
     case "result":
-      return {
-        ...edit((list) => [...settle(list), { kind: "result", key, data: d }], []),
-        results: t.results + 1,
-      };
+      return edit((list) => [...settle(list), { kind: "result", key, data: d }], []);
     case "error":
       return edit((list) => [...settle(list), { kind: "error", key, message: String(d.message ?? "error") }], []);
   }
@@ -139,9 +133,9 @@ function settle(list: Item[]): Item[] {
 /** Folds a list of events. */
 export const reduceAll = (events: SessionEvent[], t: Transcript = empty) => events.reduce(reduce, t);
 
-/** Whether a user turn waits behind an earlier unanswered one while the session is busy. */
-export function isQueued(t: Transcript, item: Item, status: string): boolean {
-  return item.kind === "user" && ["queued", "starting", "running", "waiting"].includes(status) && item.n > t.results;
+/** Whether a user message waits for the agent to take it in while the session is busy. */
+export function isQueued(item: Item, status: string): boolean {
+  return item.kind === "user" && !!item.id && !item.delivered && ["queued", "starting", "running", "waiting"].includes(status);
 }
 
 /** Flattens a tool result's content, a string or a list of content blocks, to text. */

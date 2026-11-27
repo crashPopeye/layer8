@@ -40,6 +40,8 @@ func run(logPath string) {
 		fmt.Fprintf(logf, "%s\n", in.Bytes())
 		var m struct {
 			Type      string `json:"type"`
+			UUID      string `json:"uuid"`
+			Priority  string `json:"priority"`
 			RequestID string `json:"request_id"`
 			Request   struct {
 				Subtype string `json:"subtype"`
@@ -78,6 +80,8 @@ func run(logPath string) {
 				map[string]any{"name": "layer8", "status": "connected", "source": "dynamic", "config": map[string]any{"headers": map[string]string{"Authorization": "secret"}}},
 				map[string]any{"name": "claude.ai Linear", "status": "needs-auth", "source": "claudeai"},
 			}})
+		case m.Request.Subtype == "cancel_async_message":
+			ok(map[string]any{"cancelled": true})
 		case m.Request.Subtype == "interrupt":
 			ok(nil)
 			out.Encode(map[string]any{"type": "result", "subtype": "error_during_execution", "is_error": true, "session_id": "s1"})
@@ -87,6 +91,9 @@ func run(logPath string) {
 			out.Encode(map[string]any{"type": "result", "subtype": "success", "session_id": "s1", "total_cost_usd": 0.02})
 		case m.Type == "user" && len(m.Message.Content) > 0:
 			text := m.Message.Content[0].Text
+			if m.UUID != "" && (text != "later" || m.Priority == "now") {
+				out.Encode(map[string]any{"type": "user", "uuid": m.UUID, "isReplay": true, "message": map[string]any{"role": "user", "content": text}})
+			}
 			switch {
 			case text == "hello":
 				out.Encode(map[string]any{"type": "system", "subtype": "init", "session_id": "s1", "skills": []string{"review"}, "mcp_servers": []any{map[string]any{"name": "layer8", "status": "connected"}}})

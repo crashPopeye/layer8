@@ -105,7 +105,10 @@ func Register(t *tree.Tree, db *sql.DB, ts *tasks.Service, o Options) *Manager {
 				Args: json.RawMessage(`{"type":"object","required":["text"],"properties":{
 					"text":{"type":"string"},
 					"files":{"type":"array","items":{"type":"string"},"description":"Paths the agent should read"},
+					"now":{"type":"boolean","description":"Deliver at once instead of after the running turn"},
 					"images":{"type":"array","items":{"type":"object","required":["mediaType","data"],"properties":{"mediaType":{"type":"string"},"data":{"type":"string","description":"base64"}}}}}}`)},
+			{Name: "send-now", Help: "Deliver a queued message at once instead of after the running turn", When: statusIn("queued", "starting", "running", "waiting"), Run: m.sendNowAction,
+				Args: json.RawMessage(`{"type":"object","properties":{"message":{"type":"string","description":"The queued user message's id; defaults to the oldest"}}}`)},
 			{Name: "interrupt", Help: "Stop the current turn", When: statusIn("running", "waiting"), Run: m.interruptAction},
 			{Name: "allow", Help: "Allow a pending tool call (user only)", When: statusIn("waiting"), Run: m.allow,
 				Args: json.RawMessage(`{"type":"object","properties":{"approval":{"type":"integer","description":"Defaults to the oldest pending"},"always":{"type":"boolean"}}}`)},
@@ -277,7 +280,7 @@ func (m *Manager) startSession(ctx context.Context, n tree.Node, args json.RawMe
 		return tree.Result{}, err
 	}
 	if text != "" {
-		if err := m.say(id8, harness.UserMessage{Text: text}, by); err != nil {
+		if _, err := m.say(id8, harness.UserMessage{Text: text}, by); err != nil {
 			return tree.Result{}, err
 		}
 	}
@@ -291,11 +294,12 @@ func truncate(s string, n int) string {
 	return s
 }
 
-func (m *Manager) sayAction(_ context.Context, n tree.Node, args json.RawMessage, by tree.Actor) (tree.Result, error) {
+func (m *Manager) sayAction(ctx context.Context, n tree.Node, args json.RawMessage, by tree.Actor) (tree.Result, error) {
 	var a struct {
 		Text   string
 		Files  []string
 		Images []struct{ MediaType, Data string }
+		Now    bool
 	}
 	json.Unmarshal(args, &a)
 	msg := harness.UserMessage{Text: a.Text, Files: a.Files}
@@ -306,10 +310,25 @@ func (m *Manager) sayAction(_ context.Context, n tree.Node, args json.RawMessage
 		}
 		msg.Images = append(msg.Images, harness.Image{MediaType: img.MediaType, Data: data})
 	}
-	if err := m.say(n.Addr.Path(), msg, by); err != nil {
+	id, err := m.say(n.Addr.Path(), msg, by)
+	if err != nil {
 		return tree.Result{}, err
 	}
-	return tree.Result{Message: "sent to " + string(n.Addr)}, nil
+	if a.Now {
+		if err := m.sendNow(ctx, n.Addr.Path(), id); err != nil {
+			return tree.Result{}, err
+		}
+	}
+	return tree.Result{Message: "sent to " + string(n.Addr), Data: map[string]string{"message": id}}, nil
+}
+
+func (m *Manager) sendNowAction(ctx context.Context, n tree.Node, args json.RawMessage, _ tree.Actor) (tree.Result, error) {
+	var a struct{ Message string }
+	json.Unmarshal(args, &a)
+	if err := m.sendNow(ctx, n.Addr.Path(), a.Message); err != nil {
+		return tree.Result{}, err
+	}
+	return tree.Result{Message: "sent now to " + string(n.Addr)}, nil
 }
 
 func (m *Manager) interruptAction(ctx context.Context, n tree.Node, _ json.RawMessage, _ tree.Actor) (tree.Result, error) {

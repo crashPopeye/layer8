@@ -57,7 +57,7 @@ func (h Harness) Start(ctx context.Context, o harness.StartOptions, sink harness
 
 func (h Harness) args(o harness.StartOptions) []string {
 	a := []string{"--output-format", "stream-json", "--input-format", "stream-json", "--verbose",
-		"--include-partial-messages", "--permission-prompt-tool=stdio", "--setting-sources=user,project,local"}
+		"--include-partial-messages", "--replay-user-messages", "--permission-prompt-tool=stdio", "--setting-sources=user,project,local"}
 	for _, d := range slices.Concat(h.PluginDirs, o.PluginDirs) {
 		a = append(a, "--plugin-dir", d)
 	}
@@ -101,7 +101,7 @@ func (h Harness) spawn(cwd string, args, extraEnv []string, sink harness.Sink) (
 	cmd.Dir = cwd
 	cmd.Env = env
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	p := &proc{cmd: cmd, sink: sink, pending: map[string]chan reply{}, done: make(chan struct{})}
+	p := &proc{cmd: cmd, sink: sink, pending: map[string]chan reply{}, sent: map[string]harness.UserMessage{}, done: make(chan struct{})}
 	cmd.Stderr = &p.stderr
 	if p.stdin, err = cmd.StdinPipe(); err != nil {
 		return nil, err
@@ -130,6 +130,7 @@ type proc struct {
 	wmu     sync.Mutex
 	mu      sync.Mutex
 	pending map[string]chan reply
+	sent    map[string]harness.UserMessage
 	seq     atomic.Int64
 	closing atomic.Bool
 	context int
@@ -137,8 +138,38 @@ type proc struct {
 	err     error
 }
 
-// Send writes one user turn to claude's stdin.
+// Send writes one user turn to claude's stdin; claude queues it while a turn runs.
 func (p *proc) Send(msg harness.UserMessage) error {
+	if msg.ID != "" {
+		p.mu.Lock()
+		p.sent[msg.ID] = msg
+		p.mu.Unlock()
+	}
+	return p.write(userLine(msg, ""))
+}
+
+// SendNow takes a queued message back from claude and sends it again with priority
+// "now", which cuts into the running turn. A message claude already took is left alone.
+func (p *proc) SendNow(ctx context.Context, id string) error {
+	p.mu.Lock()
+	msg, ok := p.sent[id]
+	p.mu.Unlock()
+	if !ok {
+		return nil
+	}
+	body, err := p.request(ctx, "cancel_async_message", map[string]any{"message_uuid": id})
+	if err != nil {
+		return err
+	}
+	var r struct{ Cancelled bool }
+	json.Unmarshal(body, &r)
+	if !r.Cancelled {
+		return nil
+	}
+	return p.write(userLine(msg, "now"))
+}
+
+func userLine(msg harness.UserMessage, priority string) map[string]any {
 	text := msg.Text
 	if len(msg.Files) > 0 {
 		text = strings.TrimSpace(text + "\n\nAttached files:\n- " + strings.Join(msg.Files, "\n- "))
@@ -151,8 +182,15 @@ func (p *proc) Send(msg harness.UserMessage) error {
 		content = append(content, map[string]any{"type": "image", "source": map[string]any{
 			"type": "base64", "media_type": img.MediaType, "data": base64.StdEncoding.EncodeToString(img.Data)}})
 	}
-	return p.write(map[string]any{"type": "user", "parent_tool_use_id": nil, "session_id": "",
-		"message": map[string]any{"role": "user", "content": content}})
+	line := map[string]any{"type": "user", "parent_tool_use_id": nil, "session_id": "",
+		"message": map[string]any{"role": "user", "content": content}}
+	if msg.ID != "" {
+		line["uuid"] = msg.ID
+	}
+	if priority != "" {
+		line["priority"] = priority
+	}
+	return line
 }
 
 // Interrupt stops the current turn and waits for claude to acknowledge it.
@@ -344,6 +382,8 @@ type message struct {
 		ContextWindow int `json:"contextWindow"`
 	} `json:"modelUsage"`
 	RateLimit rateLimitInfo `json:"rate_limit_info"`
+	UUID      string        `json:"uuid"`
+	IsReplay  bool          `json:"isReplay"`
 }
 
 var liveSystem = map[string]bool{"status": true, "thinking_tokens": true, "hook_started": true, "hook_progress": true, "hook_response": true}
@@ -392,6 +432,10 @@ func (p *proc) handle(line []byte) {
 			}
 		}
 	case "user":
+		if m.IsReplay {
+			p.delivered(m.UUID)
+			return
+		}
 		for _, b := range blocks(m.Message.Content) {
 			if b.Type == "tool_result" {
 				p.emit(harness.EventToolResult, false, map[string]any{"toolUseId": b.ToolUseID, "content": b.Content, "isError": b.IsError}, m.Parent)
@@ -415,6 +459,16 @@ func (p *proc) handle(line []byte) {
 		var data map[string]any
 		json.Unmarshal(line, &data)
 		p.emit(harness.EventSystem, liveSystem[m.Subtype], data, nil)
+	}
+}
+
+func (p *proc) delivered(id string) {
+	p.mu.Lock()
+	_, ok := p.sent[id]
+	delete(p.sent, id)
+	p.mu.Unlock()
+	if ok {
+		p.emit(harness.EventDelivered, false, map[string]any{"id": id}, nil)
 	}
 }
 

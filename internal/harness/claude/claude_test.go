@@ -97,7 +97,7 @@ func TestStartArgvAndInitialize(t *testing.T) {
 	var argv []string
 	json.Unmarshal([]byte(lines[0]), &argv)
 	want := []string{"--output-format", "stream-json", "--input-format", "stream-json", "--verbose",
-		"--include-partial-messages", "--permission-prompt-tool=stdio", "--setting-sources=user,project,local",
+		"--include-partial-messages", "--replay-user-messages", "--permission-prompt-tool=stdio", "--setting-sources=user,project,local",
 		"--plugin-dir", "/opt/layer8/plugin", "--plugin-dir", "/tmp/extra", "--add-dir", "/home/a/.layer8/tasks/eng-482",
 		"--mcp-config", `{"mcpServers":{"layer8":{"type":"http","url":"http://127.0.0.1:7979/mcp","headers":{"X-Layer8-Session":"9c41e0aa"}}}}`,
 		"--allowedTools", "ReadMcpResourceTool,mcp__layer8__do", "--resume", "5f0c", "--model", "opus", "--effort", "high", "--permission-mode", "acceptEdits", "--fork-session"}
@@ -338,5 +338,36 @@ func TestProbe(t *testing.T) {
 	json.Unmarshal([]byte(logLines(t, log)[0]), &argv)
 	if slices.Contains(argv, "--mcp-config") || !slices.Contains(argv, "/opt/layer8/plugin") {
 		t.Fatalf("probe argv = %q", argv)
+	}
+}
+
+func TestSendNowCancelsAndResendsWithPriorityNow(t *testing.T) {
+	h, log := fake(t)
+	rec := newRecorder(nil)
+	p := start(t, h, rec, harness.StartOptions{})
+	p.Send(harness.UserMessage{ID: "m1", Text: "later"})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := p.SendNow(ctx, "unknown"); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.SendNow(ctx, "m1"); err != nil {
+		t.Fatal(err)
+	}
+	if got := rec.until(t, harness.EventDelivered); got[len(got)-1].Data["id"] != "m1" {
+		t.Fatalf("events = %+v", got)
+	}
+	if err := p.SendNow(ctx, "m1"); err != nil {
+		t.Fatal(err)
+	}
+	p.Close(time.Second)
+	lines := logLines(t, log)
+	want := []string{
+		`{"message":{"content":[{"text":"later","type":"text"}],"role":"user"},"parent_tool_use_id":null,"session_id":"","type":"user","uuid":"m1"}`,
+		`{"request":{"message_uuid":"m1","subtype":"cancel_async_message"},"request_id":"layer8-2","type":"control_request"}`,
+		`{"message":{"content":[{"text":"later","type":"text"}],"role":"user"},"parent_tool_use_id":null,"priority":"now","session_id":"","type":"user","uuid":"m1"}`,
+	}
+	if got := lines[len(lines)-3:]; !slices.Equal(got, want) {
+		t.Fatalf("stdin\n got %q\nwant %q", got, want)
 	}
 }

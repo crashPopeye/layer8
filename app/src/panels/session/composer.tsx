@@ -1,5 +1,5 @@
 import { isTauri } from "@tauri-apps/api/core";
-import { ArrowUp, AtSign, ChevronDown, ImagePlus, Paperclip, Square, X } from "lucide-react";
+import { ArrowUp, AtSign, ChevronDown, ImagePlus, Paperclip, Square, X, Zap } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -69,7 +69,7 @@ export function subtaskName(prompt: string): string {
   return words.slice(0, 4).join("-") || "session";
 }
 
-/** Writes to a session of the task or starts a new one: ⏎ sends, ⇧⏎ breaks the line, `/` and `@` complete, Esc twice interrupts. */
+/** Writes to a session of the task or starts a new one: ⏎ sends, ⌘⏎ sends now into a running turn, ⇧⏎ breaks the line, `/` and `@` complete, Esc twice interrupts. */
 export function Composer({ task, session, sessions }: { task: Addr; session: Addr | null; sessions: Summary[] }) {
   const client = useClient();
   const { tree } = useTree();
@@ -176,7 +176,7 @@ export function Composer({ task, session, sessions }: { task: Addr; session: Add
     return r;
   }
 
-  async function send() {
+  async function send(now = false) {
     const body = text.trim();
     if (busy || (!body && !images.length && !files.length)) return;
     setBusy(true);
@@ -187,7 +187,7 @@ export function Composer({ task, session, sessions }: { task: Addr; session: Add
       ...(images.length && { images: images.map(({ mediaType, data }) => ({ mediaType, data })) }),
     };
     let ok: boolean;
-    if (target) ok = (await run(target, "say", say)).ok;
+    if (target) ok = (await run(target, "say", now ? { ...say, now } : say)).ok;
     else {
       const home = fresh ? await run(task, "create-subtask", { name: subtaskName(body) }) : { ok: true, addr: task };
       const attached = files.length > 0 || images.length > 0;
@@ -230,7 +230,7 @@ export function Composer({ task, session, sessions }: { task: Addr; session: Add
     }
     if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
-      send();
+      send(running && (e.metaKey || e.ctrlKey));
     }
   }
 
@@ -391,7 +391,12 @@ export function Composer({ task, session, sessions }: { task: Addr; session: Add
               <Square className="size-3 fill-current" />
             </Button>
           )}
-          <Button size="icon-sm" className="size-7 rounded-full" disabled={busy || empty} title={target ? "Send (⏎)" : "Start session (⏎)"} onClick={send}>
+          {running && (
+            <Button variant="outline" size="icon-sm" className="size-7 rounded-full" disabled={busy || empty} title="Send now (⌘⏎)" onClick={() => send(true)}>
+              <Zap className="size-3.5" />
+            </Button>
+          )}
+          <Button size="icon-sm" className="size-7 rounded-full" disabled={busy || empty} title={target ? "Send (⏎)" : "Start session (⏎)"} onClick={() => send()}>
             <ArrowUp className="size-4" />
           </Button>
         </span>
