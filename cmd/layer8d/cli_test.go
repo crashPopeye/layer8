@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/crashPopeye/layer8/internal/config"
 	"github.com/crashPopeye/layer8/internal/daemon"
 	"github.com/crashPopeye/layer8/internal/store"
 )
@@ -19,7 +20,7 @@ func TestCLIGetAndDo(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	ts := httptest.NewServer(daemon.Build(db, "tok", "test"))
+	ts := httptest.NewServer(daemon.Build(t.Context(), config.Config{Home: t.TempDir()}, db, "tok", "test"))
 	defer ts.Close()
 	c := client{url: ts.URL, token: "tok"}
 	repo := filepath.Join(t.TempDir(), "api-gateway")

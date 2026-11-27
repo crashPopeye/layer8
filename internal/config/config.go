@@ -16,6 +16,13 @@ type Config struct {
 	Home        string `json:"-"`
 	Addr        string `json:"addr"`
 	MaxSessions int    `json:"maxSessions"`
+	Apps        Apps   `json:"apps"`
+}
+
+// Apps names the macOS applications a task's "open" action uses.
+type Apps struct {
+	Terminal string `json:"terminal"`
+	Editor   string `json:"editor"`
 }
 
 // Load reads the config from LAYER8_HOME (default ~/.layer8), creating the folder if needed.
@@ -35,7 +42,7 @@ func Load() (Config, error) {
 	if err := os.MkdirAll(home, 0o700); err != nil {
 		return Config{}, err
 	}
-	c := Config{Home: home, Addr: "127.0.0.1:7979", MaxSessions: 6}
+	c := Config{Home: home, Addr: "127.0.0.1:7979", MaxSessions: 6, Apps: Apps{Terminal: "Terminal", Editor: "Visual Studio Code"}}
 	data, err := os.ReadFile(c.Path("config.json"))
 	if errors.Is(err, fs.ErrNotExist) {
 		return c, nil
