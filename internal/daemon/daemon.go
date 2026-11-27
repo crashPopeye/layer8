@@ -16,10 +16,13 @@ import (
 	"github.com/crashPopeye/layer8/internal/config"
 	"github.com/crashPopeye/layer8/internal/diff"
 	"github.com/crashPopeye/layer8/internal/github"
+	"github.com/crashPopeye/layer8/internal/harness"
+	"github.com/crashPopeye/layer8/internal/harness/claude"
 	"github.com/crashPopeye/layer8/internal/linear"
 	"github.com/crashPopeye/layer8/internal/mcp"
 	"github.com/crashPopeye/layer8/internal/projects"
 	"github.com/crashPopeye/layer8/internal/server"
+	"github.com/crashPopeye/layer8/internal/sessions"
 	"github.com/crashPopeye/layer8/internal/store"
 	"github.com/crashPopeye/layer8/internal/tasks"
 	"github.com/crashPopeye/layer8/internal/tree"
@@ -33,6 +36,11 @@ func Build(ctx context.Context, cfg config.Config, db *sql.DB, token, version st
 	projects.Register(t, db, version)
 	ts := tasks.Register(t, db, tasks.Options{Home: cfg.Home, Apps: cfg.Apps})
 	go ts.Watch(ctx, 2*time.Second)
+	ss := sessions.Register(t, db, ts, sessions.Options{
+		Harnesses: map[string]harness.Harness{"claude": claude.Harness{}},
+		Max:       cfg.MaxSessions, MCPURL: cfg.URL() + "/mcp", Token: token, AutoApproveDo: cfg.AutoApproveDo,
+		Terminal: cfg.Apps.Terminal, Publish: hub.Publish,
+	})
 	linearCallback := linear.Register(t, linear.New(cfg.Path("linear.json"), cfg.LinearClientID), cfg.URL()+linearCallbackPath)
 	diff.Register(t)
 	gh := github.Register(t, db, &github.Client{API: "https://api.github.com", HTTP: &http.Client{Timeout: 30 * time.Second}, Token: github.GHToken(cfg.GitHubToken)})
@@ -40,9 +48,11 @@ func Build(ctx context.Context, cfg config.Config, db *sql.DB, token, version st
 	return server.New(server.Options{
 		Tree: t, Hub: hub, Token: token, Version: version, MCP: mcp.New(t, hub, version),
 		Routes: map[string]http.Handler{
-			"GET /api/artifact": http.HandlerFunc(ts.ServeArtifact),
-			"GET /api/file":     http.HandlerFunc(ts.ServeFile),
-			"GET /api/diff":     diff.Handler(t),
+			"GET /api/artifact":              http.HandlerFunc(ts.ServeArtifact),
+			"GET /api/file":                  http.HandlerFunc(ts.ServeFile),
+			"GET /api/diff":                  diff.Handler(t),
+			"GET /api/sessions/{id8}/events": http.HandlerFunc(ss.ServeEvents),
+			"GET /api/capabilities":          http.HandlerFunc(ss.ServeCapabilities),
 		},
 		Public: map[string]http.Handler{"GET " + linearCallbackPath: linearCallback},
 	})

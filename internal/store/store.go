@@ -47,6 +47,45 @@ var migrations = []string{
 	);
 	CREATE INDEX tasks_project ON tasks (project_id);
 	CREATE INDEX tasks_parent ON tasks (parent_id);`,
+	`CREATE TABLE sessions (
+		id TEXT PRIMARY KEY,
+		id8 TEXT NOT NULL UNIQUE,
+		task_id INTEGER NOT NULL REFERENCES tasks(id),
+		harness TEXT NOT NULL,
+		model TEXT NOT NULL DEFAULT '',
+		effort TEXT NOT NULL DEFAULT '',
+		permission_mode TEXT NOT NULL DEFAULT '',
+		harness_session_id TEXT NOT NULL DEFAULT '',
+		fork INTEGER NOT NULL DEFAULT 0,
+		status TEXT NOT NULL DEFAULT 'idle' CHECK (status IN ('queued', 'starting', 'running', 'waiting', 'idle', 'done', 'failed')),
+		title TEXT NOT NULL,
+		skill TEXT NOT NULL DEFAULT '',
+		workflow_step TEXT NOT NULL DEFAULT '',
+		cost_usd REAL NOT NULL DEFAULT 0,
+		context_tokens INTEGER NOT NULL DEFAULT 0,
+		capabilities TEXT,
+		error TEXT NOT NULL DEFAULT '',
+		created_by TEXT NOT NULL,
+		created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+	);
+	CREATE INDEX sessions_task ON sessions (task_id);
+	CREATE TABLE session_events (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		session_id TEXT NOT NULL REFERENCES sessions(id),
+		type TEXT NOT NULL,
+		at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+		data TEXT NOT NULL
+	);
+	CREATE INDEX session_events_session ON session_events (session_id, id);
+	CREATE TABLE approvals (
+		id INTEGER PRIMARY KEY,
+		session_id TEXT NOT NULL REFERENCES sessions(id),
+		request TEXT NOT NULL,
+		status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'allowed', 'denied', 'expired')),
+		decided_by TEXT NOT NULL DEFAULT '',
+		created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+	);
+	CREATE INDEX approvals_session ON approvals (session_id, status);`,
 }
 
 // Open opens the database at path and applies pending migrations.

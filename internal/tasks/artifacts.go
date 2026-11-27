@@ -54,7 +54,7 @@ func (s *Service) getArtifact(ctx context.Context, a tree.Addr) (tree.Node, erro
 		return tree.Node{}, err
 	}
 	defer r.Close()
-	fields := map[string]any{"task": addrOf(root), "path": filepath.Join(s.artifactsDir(root), rel), "exists": false}
+	fields := map[string]any{"task": AddrOf(root), "path": filepath.Join(s.artifactsDir(root), rel), "exists": false}
 	info, err := r.Stat(rel)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):

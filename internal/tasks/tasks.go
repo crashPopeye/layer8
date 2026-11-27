@@ -52,12 +52,13 @@ type Task struct {
 }
 
 // Addr returns the task's address, task:<root>/<child>….
-func (t Task) Addr() tree.Addr { return addrOf(t.Slug) }
+func (t Task) Addr() tree.Addr { return AddrOf(t.Slug) }
 
 // Root returns the slug of the task at the top of the tree.
 func (t Task) Root() string { return rootOf(t.Slug) }
 
-func addrOf(slug string) tree.Addr { return tree.Addr("task:" + strings.ReplaceAll(slug, "--", "/")) }
+// AddrOf returns the address of the task with slug.
+func AddrOf(slug string) tree.Addr { return tree.Addr("task:" + strings.ReplaceAll(slug, "--", "/")) }
 
 func rootOf(slug string) string {
 	root, _, _ := strings.Cut(slug, "--")
@@ -67,7 +68,7 @@ func rootOf(slug string) string {
 // parent returns the address of the task's parent task, or of its project for a root task.
 func (t Task) parent() tree.Addr {
 	if i := strings.LastIndex(t.Slug, "--"); i >= 0 {
-		return addrOf(t.Slug[:i])
+		return AddrOf(t.Slug[:i])
 	}
 	return tree.Addr("project:" + t.Project)
 }
@@ -258,7 +259,7 @@ func (s *Service) createSubtask(ctx context.Context, n tree.Node, args json.RawM
 	base := parent.Branch
 	if a.Base != "" {
 		base = a.Base
-		if sibling, err := s.Lookup(ctx, addrOf(parent.Slug+"--"+slugify(a.Base))); err == nil {
+		if sibling, err := s.Lookup(ctx, AddrOf(parent.Slug+"--"+slugify(a.Base))); err == nil {
 			base = sibling.Branch
 		}
 	}
@@ -273,7 +274,7 @@ func (s *Service) create(ctx context.Context, nt newTask) (tree.Result, error) {
 		nt.slug, nt.parentID, nt.parentID, nt.project, nt.title, nt.branch, nt.base, worktree, nt.by.String())
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
-			return tree.Result{}, fmt.Errorf("task %s already exists", addrOf(nt.slug))
+			return tree.Result{}, fmt.Errorf("task %s already exists", AddrOf(nt.slug))
 		}
 		return tree.Result{}, err
 	}
@@ -290,8 +291,8 @@ func (s *Service) create(ctx context.Context, nt newTask) (tree.Result, error) {
 		return tree.Result{}, err
 	}
 	return tree.Result{
-		Addr:    addrOf(nt.slug),
-		Message: fmt.Sprintf("created %s on branch %s from %s", addrOf(nt.slug), nt.branch, nt.start),
+		Addr:    AddrOf(nt.slug),
+		Message: fmt.Sprintf("created %s on branch %s from %s", AddrOf(nt.slug), nt.branch, nt.start),
 		Data:    map[string]string{"branch": nt.branch, "worktree": worktree, "artifacts": s.artifactsDir(rootOf(nt.slug))},
 	}, nil
 }

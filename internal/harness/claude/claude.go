@@ -71,12 +71,18 @@ func (h Harness) args(o harness.StartOptions) []string {
 			Headers map[string]string `json:"headers,omitempty"`
 		}
 		cfg, _ := json.Marshal(map[string]any{"mcpServers": map[string]server{"layer8": {"http", o.MCPURL, o.MCPHeaders}}})
-		a = append(a, "--mcp-config", string(cfg), "--allowedTools", "mcp__layer8")
+		a = append(a, "--mcp-config", string(cfg))
+	}
+	if len(o.AllowedTools) > 0 {
+		a = append(a, "--allowedTools", strings.Join(o.AllowedTools, ","))
 	}
 	for _, f := range [][2]string{{"--resume", o.ResumeID}, {"--model", o.Model}, {"--effort", o.Effort}, {"--permission-mode", o.PermissionMode}} {
 		if f[1] != "" {
 			a = append(a, f[0], f[1])
 		}
+	}
+	if o.Fork && o.ResumeID != "" {
+		a = append(a, "--fork-session")
 	}
 	return a
 }

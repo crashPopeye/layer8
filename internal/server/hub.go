@@ -44,7 +44,7 @@ func (h *Hub) Publish(name string, data any) {
 
 // Subscribe returns a channel of events, closed when cancel is called or the subscriber falls behind.
 func (h *Hub) Subscribe() (events <-chan Event, cancel func()) {
-	ch := make(chan Event, 64)
+	ch := make(chan Event, 256)
 	h.mu.Lock()
 	h.subs[ch] = struct{}{}
 	h.mu.Unlock()
