@@ -67,7 +67,7 @@ func fakeCodex(logPath string) {
 		case "skills/list":
 			ok(map[string]any{"data": []any{map[string]any{"cwd": "/w", "errors": []any{}, "skills": []any{
 				map[string]any{"name": "review", "description": "Review the diff in depth", "path": "/s/review/SKILL.md", "scope": "user", "enabled": true, "interface": map[string]any{"shortDescription": "Review code"}},
-				map[string]any{"name": "layer8:plan", "description": "Plan the work", "shortDescription": "Plan", "path": "/s/plan/SKILL.md", "scope": "user", "enabled": true},
+				map[string]any{"name": "layer8-plan", "description": "Plan the work", "shortDescription": "Plan", "path": "/s/plan/SKILL.md", "scope": "user", "enabled": true},
 				map[string]any{"name": "off", "description": "Disabled", "path": "/s/off/SKILL.md", "scope": "user", "enabled": false},
 			}}}})
 		case "thread/start":
@@ -259,7 +259,7 @@ func TestStartHandshakeAndThreadParams(t *testing.T) {
 		PluginDirs: []string{"/tmp/extra"}, AppendSystemPrompt: "You run inside layer8.",
 	})
 	init := rec.until(t, harness.EventSystem, 5*time.Second)[0].Data
-	if init["subtype"] != "init" || init["session_id"] != "th-1" || init["model"] != "gpt-5" || !slices.Equal(init["skills"].([]string), []string{"review", "layer8:plan"}) {
+	if init["subtype"] != "init" || init["session_id"] != "th-1" || init["model"] != "gpt-5" || !slices.Equal(init["skills"].([]string), []string{"review", "layer8-plan"}) {
 		t.Fatalf("init = %v", init)
 	}
 	p.Close(time.Second)
@@ -334,7 +334,7 @@ func TestSendInput(t *testing.T) {
 	for _, msg := range []harness.UserMessage{
 		{Text: "echo look", Files: []string{"/w/a.go", "/w/b.md"}, Images: []harness.Image{{MediaType: "image/png", Data: []byte("png")}}},
 		{Text: "/review the auth change"},
-		{Text: "$layer8:plan\nsplit it"},
+		{Text: "/layer8:plan\nsplit it"},
 		{Text: "/unknown stays text"},
 	} {
 		if err := p.Send(msg); err != nil {
@@ -347,7 +347,7 @@ func TestSendInput(t *testing.T) {
 	want := []string{
 		`{"effort":"low","input":[{"text":"echo look\n\nAttached files:\n- /w/a.go\n- /w/b.md","type":"text"},{"type":"image","url":"data:image/png;base64,cG5n"}],"threadId":"th-1"}`,
 		`{"effort":"low","input":[{"text":"$review the auth change","type":"text"},{"name":"review","path":"/s/review/SKILL.md","type":"skill"}],"threadId":"th-1"}`,
-		`{"effort":"low","input":[{"text":"$layer8:plan\nsplit it","type":"text"},{"name":"layer8:plan","path":"/s/plan/SKILL.md","type":"skill"}],"threadId":"th-1"}`,
+		`{"effort":"low","input":[{"text":"$layer8-plan\nsplit it","type":"text"},{"name":"layer8-plan","path":"/s/plan/SKILL.md","type":"skill"}],"threadId":"th-1"}`,
 		`{"effort":"low","input":[{"text":"/unknown stays text","type":"text"}],"threadId":"th-1"}`,
 	}
 	if got := sent(t, log, "turn/start"); !slices.Equal(got, want) {
@@ -577,7 +577,7 @@ func TestProbe(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, _ := json.Marshal(c)
-	want := `{"commands":[{"name":"review","description":"Review code"},{"name":"layer8:plan","description":"Plan","plugin":"layer8"}],` +
+	want := `{"commands":[{"name":"review","description":"Review code"},{"name":"layer8-plan","description":"Plan"}],` +
 		`"models":[{"value":"gpt-5","displayName":"GPT-5","description":"Smart","efforts":["low","high"]},{"value":"gpt-5-mini","displayName":"GPT-5 mini","description":"Cheap"}],` +
 		`"agents":null,"mcpServers":[{"name":"layer8","status":"connected"},{"name":"linear","status":"needs-auth"}]}`
 	if string(got) != want {

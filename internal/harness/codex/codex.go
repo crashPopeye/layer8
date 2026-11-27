@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/crashPopeye/layer8/internal/harness"
+	"github.com/crashPopeye/layer8/plugin"
 )
 
 // Harness starts `codex app-server` processes. Bin defaults to "codex" looked up on
@@ -242,7 +243,7 @@ func (p *proc) endTurn(result map[string]any) {
 }
 
 // input converts msg to codex input items. A leading /name or $name naming a known
-// skill becomes a skill item.
+// skill becomes a skill item; layer8:<name> names the plugin's Codex mirror.
 func (p *proc) input(msg harness.UserMessage) []any {
 	text := msg.Text
 	if len(msg.Files) > 0 {
@@ -250,10 +251,14 @@ func (p *proc) input(msg harness.UserMessage) []any {
 	}
 	var skill []any
 	if len(text) > 1 && (text[0] == '/' || text[0] == '$') {
-		name, _, _ := strings.Cut(text[1:], " ")
-		name, _, _ = strings.Cut(name, "\n")
+		word, _, _ := strings.Cut(text[1:], " ")
+		word, _, _ = strings.Cut(word, "\n")
+		name := word
+		if s, ok := strings.CutPrefix(word, "layer8:"); ok {
+			name = plugin.CodexName(s)
+		}
 		if path, ok := p.skills[name]; ok {
-			text = "$" + text[1:]
+			text = "$" + name + text[1+len(word):]
 			skill = []any{map[string]any{"type": "skill", "name": name, "path": path}}
 		}
 	}
