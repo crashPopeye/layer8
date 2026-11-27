@@ -1,4 +1,5 @@
 import type { PanelDef } from "@/dock/registry";
+import { resolveMode, type Mode } from "./theme";
 import type { Addr, Client, Node, Op, Summary } from "./types";
 
 /** A ⌘K command: built in, or registered by a plugin. */
@@ -40,6 +41,7 @@ export interface PaletteInput {
   chain: Node[];
   layout: Node | null;
   theme: Node | null;
+  prefersDark: boolean;
   panels: PanelDef[];
   commands: Command[];
 }
@@ -102,6 +104,9 @@ export function buildPalette(input: PaletteInput, deps: PaletteDeps): Item[] {
     add({ id: `theme:${theme}`, group: "Theme", title: `Theme: ${theme}`, run: () => deps.run(op) });
   }
   if (input.theme) {
+    const dark = resolveMode((input.theme.fields?.mode as Mode | undefined) ?? "dark", input.prefersDark) === "dark";
+    const op = { target: "ui:theme", action: "set", args: { mode: dark ? "light" : "dark" } };
+    add({ id: "mode:toggle", group: "Theme", title: "Toggle light / dark", hint: dark ? "light" : "dark", run: () => deps.run(op) });
     for (const mode of ["dark", "light", "system"]) {
       const op = { target: "ui:theme", action: "set", args: { mode } };
       add({ id: `mode:${mode}`, group: "Theme", title: `Mode: ${mode}`, run: () => deps.run(op) });

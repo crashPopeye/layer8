@@ -36,6 +36,7 @@ const input: PaletteInput = {
   ],
   layout: node({ addr: "ui:layout", kind: "ui", title: "layout", fields: { presets: ["Default", "Mine"] } }),
   theme: node({ addr: "ui:theme", kind: "ui", title: "theme", fields: { themes: { layer8: {}, ocean: {} } } }),
+  prefersDark: false,
   panels: [{ id: "open-prs", title: "Open PRs", icon: FileText, component: () => null, defaultPosition: "right", plugin: "open-prs" }],
   commands: [{ id: "open-prs.show", title: "Show open PRs", plugin: "open-prs", run: vi.fn() }],
 };
@@ -58,7 +59,7 @@ it("groups nodes, actions, workflows, layouts, themes, panels and commands", () 
   expect(by("Actions")).toEqual(["start-session", "run-workflow", "create-task", "add-project"]);
   expect(by("Workflows")).toEqual(["Run plan"]);
   expect(by("Layout")).toEqual(["Layout: Default", "Layout: Mine", "Save layout as preset…", "Delete a layout preset…"]);
-  expect(by("Theme")).toEqual(["Theme: layer8", "Theme: ocean", "Mode: dark", "Mode: light", "Mode: system"]);
+  expect(by("Theme")).toEqual(["Theme: layer8", "Theme: ocean", "Toggle light / dark", "Mode: dark", "Mode: light", "Mode: system"]);
   expect(by("Panels")).toEqual(["Open Open PRs"]);
   expect(by("Commands")).toEqual(["Show open PRs"]);
 });
@@ -87,8 +88,23 @@ it("runs each item through the right dependency", () => {
 
 it("offers no workflows, layouts or themes when their nodes are missing", () => {
   const items = buildPalette(
-    { app: null, chain: [], layout: null, theme: null, panels: [], commands: [] },
+    { app: null, chain: [], layout: null, theme: null, prefersDark: false, panels: [], commands: [] },
     { focus: vi.fn(), openAction: vi.fn(), run: vi.fn(), openPanel: vi.fn(), savePreset: vi.fn() },
   );
   expect(items).toEqual([]);
+});
+
+it("toggles to the scheme opposite the one showing, resolving system mode", () => {
+  const toggle = (mode: string, prefersDark: boolean) => {
+    const run = vi.fn();
+    const theme = { ...input.theme!, fields: { mode } };
+    buildPalette({ ...input, theme, prefersDark }, { focus: vi.fn(), openAction: vi.fn(), run, openPanel: vi.fn(), savePreset: vi.fn() })
+      .find((i) => i.id === "mode:toggle")!
+      .run();
+    return run.mock.calls[0][0].args.mode;
+  };
+  expect(toggle("dark", false)).toBe("light");
+  expect(toggle("light", true)).toBe("dark");
+  expect(toggle("system", true)).toBe("light");
+  expect(toggle("system", false)).toBe("dark");
 });
