@@ -44,12 +44,15 @@ export function latest(sessions: Summary[]): Summary | undefined {
 }
 
 /** The focused task, its sessions and the one the session panel shows: the focused session, else the newest unless drafting a new one. */
-export function useShownSession(): { task: Addr | null; session: Addr | null; sessions: Summary[] } {
+export function useShownSession(): { task: Addr | null; session: Addr | null; sessions: Summary[]; archived: boolean } {
   const focus = useFocus();
   const task = taskOf(focus);
   const draft = useDraft();
   const { tree } = useTree();
-  const sessions = (task && walk(tree).find((i) => i.addr === task)?.sessions) || [];
-  const session = !task ? null : focus.startsWith("session:") ? focus : draft === task ? null : (latest(sessions)?.addr ?? null);
-  return { task, session, sessions };
+  const item = task ? walk(tree).find((i) => i.addr === task) : undefined;
+  const sessions = item?.sessions ?? [];
+  const archived = item?.status === "archived";
+  const drafting = draft === task && !archived;
+  const session = !task ? null : focus.startsWith("session:") ? focus : drafting ? null : (latest(sessions)?.addr ?? null);
+  return { task, session, sessions, archived };
 }

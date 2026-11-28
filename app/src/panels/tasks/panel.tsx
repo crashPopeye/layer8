@@ -152,7 +152,7 @@ export function TasksPanel() {
         <Button
           variant="ghost"
           size="icon-xs"
-          title={archived ? "Hide archived tasks" : "Show archived tasks"}
+          title={archived ? "Hide archived tasks" : "Show archived tasks and their sessions"}
           className={cn(archived && "text-foreground")}
           onClick={() => setArchived(!archived)}
         >
@@ -202,9 +202,11 @@ function Sessions({ tree }: { tree: TreeItem[] }) {
     <div className="mt-auto border-t pt-2">
       <div className="flex items-center gap-1 px-1.5 text-[11px] text-muted-foreground">
         <span className="flex-1 truncate">Sessions in {item.title}</span>
-        <Button variant="ghost" size="icon-xs" title="New session (⌘T)" onClick={newSession}>
-          <Plus />
-        </Button>
+        {item.status !== "archived" && (
+          <Button variant="ghost" size="icon-xs" title="New session (⌘T)" onClick={newSession}>
+            <Plus />
+          </Button>
+        )}
       </div>
       {item.sessions.map((s) => (
         <SessionRow key={s.addr} addr={s.addr} task={task} />

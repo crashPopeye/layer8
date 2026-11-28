@@ -1,4 +1,4 @@
-import { Ellipsis, Plug } from "lucide-react";
+import { Archive, Ellipsis, Plug } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, menuLabel } from "@/components/ui/dropdown-menu";
@@ -222,22 +222,43 @@ function SessionNode({ addr, task }: { addr: Addr; task: Addr }) {
   return <SessionView node={node} task={task} />;
 }
 
+/** Stands in for the composer on an archived task, whose worktree is gone: its sessions can be read, not resumed. */
+function Archived({ task }: { task: Addr }) {
+  const client = useClient();
+  const [message, setMessage] = useState<string | null>(null);
+  async function reopen() {
+    const [r] = await client.doOps([{ target: task, action: "reopen" }]);
+    setMessage(r.ok ? null : (r.message ?? "reopen failed"));
+  }
+  return (
+    <div className="flex shrink-0 items-center gap-2 border-t px-3 py-2 text-[12px] text-muted-foreground">
+      <Archive className="size-3.5" />
+      <span className="flex-1">{message ?? "This task is archived. Its sessions are read-only."}</span>
+      <Button variant="outline" size="xs" onClick={reopen}>
+        Reopen task
+      </Button>
+    </div>
+  );
+}
+
 /** The focused session's live transcript, approvals and composer; a new-session composer when the task has none or ⌘T asked for one. */
 export function SessionPanel() {
-  const { task, session, sessions } = useShownSession();
+  const { task, session, sessions, archived } = useShownSession();
   if (!task) return <p className="p-3 text-muted-foreground">Focus a task to see its sessions.</p>;
 
   return (
     <div className="flex h-full flex-col">
       {session ? (
         <SessionNode key={session} addr={session} task={task} />
+      ) : archived ? (
+        <p className="flex-1 p-3 text-muted-foreground">This archived task has no sessions.</p>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-1 text-muted-foreground">
           <p>New session in {task}</p>
           <p className="text-[12px]">Choose the model and worktree below, then send the first prompt.</p>
         </div>
       )}
-      <Composer key={task} task={task} session={session} sessions={sessions} />
+      {archived ? <Archived task={task} /> : <Composer key={task} task={task} session={session} sessions={sessions} />}
     </div>
   );
 }
