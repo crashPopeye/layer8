@@ -599,3 +599,25 @@ func TestUsageNode(t *testing.T) {
 		t.Fatalf("today = %s", raw)
 	}
 }
+
+func TestArchivedTaskSessionsAreReadOnly(t *testing.T) {
+	e := newEnv(t, sessions.Options{})
+	s, p := e.start(`{"prompt":"hi"}`)
+	p.turn(t, 0)
+	e.waitStatus(s, "idle")
+	e.ok(s, "close", `{}`)
+	e.ok(e.task, "archive", `{}`)
+
+	n := e.get(s)
+	if n.Fields["taskStatus"] != "archived" {
+		t.Fatalf("taskStatus = %v", n.Fields["taskStatus"])
+	}
+	for _, a := range n.Actions {
+		if slices.Contains([]string{"say", "set", "fork", "open-terminal"}, a.Name) {
+			t.Fatalf("archived session offers %s", a.Name)
+		}
+	}
+	if got := e.eventTypes(s); !slices.Contains(got, "user") || !slices.Contains(got, "result") {
+		t.Fatalf("events = %v", got)
+	}
+}

@@ -101,7 +101,7 @@ func Register(t *tree.Tree, db *sql.DB, ts *tasks.Service, o Options) *Manager {
 		Name: "session",
 		Get:  m.get,
 		Actions: []tree.Action{
-			{Name: "say", Help: "Send a message, resuming the agent if needed", Run: m.sayAction,
+			{Name: "say", Help: "Send a message, resuming the agent if needed", When: taskOpen, Run: m.sayAction,
 				Args: json.RawMessage(`{"type":"object","required":["text"],"properties":{
 					"text":{"type":"string"},
 					"files":{"type":"array","items":{"type":"string"},"description":"Paths the agent should read"},
@@ -115,7 +115,7 @@ func Register(t *tree.Tree, db *sql.DB, ts *tasks.Service, o Options) *Manager {
 			{Name: "deny", Help: "Deny a pending tool call (user only)", When: statusIn("waiting"), Run: m.deny,
 				Args: json.RawMessage(`{"type":"object","properties":{"approval":{"type":"integer","description":"Defaults to the oldest pending"},"message":{"type":"string"}}}`)},
 			{Name: "close", Help: "End the session and its agent process", When: func(n tree.Node) bool { return n.Fields["status"] != "done" }, Run: m.closeAction},
-			{Name: "set", Help: "Change model, effort or permission mode from the next turn", Run: m.set,
+			{Name: "set", Help: "Change model, effort or permission mode from the next turn", When: taskOpen, Run: m.set,
 				Args: json.RawMessage(`{"type":"object","properties":{"model":{"type":"string"},"effort":{"type":"string"},"permissionMode":{"type":"string"}}}`)},
 			{Name: "fork", Help: "Copy this conversation into a new session", When: resumable, Run: m.fork},
 			{Name: "open-terminal", Help: "Continue this conversation in the terminal", Run: m.openTerminal,
@@ -144,12 +144,15 @@ func statusIn(statuses ...string) func(tree.Node) bool {
 	return func(n tree.Node) bool { return slices.Contains(statuses, n.Fields["status"].(string)) }
 }
 
-func resumable(n tree.Node) bool { return n.Fields["harnessSessionId"] != "" }
+func resumable(n tree.Node) bool { return n.Fields["harnessSessionId"] != "" && taskOpen(n) }
+
+// taskOpen reports whether the session's task still has a worktree to run the agent in.
+func taskOpen(n tree.Node) bool { return n.Fields["taskStatus"] != "archived" }
 
 // row is a session as stored.
 type row struct {
 	ID, ID8, TaskSlug, Harness, Model, Effort, PermissionMode, HarnessSessionID string
-	Status, Title, Skill, WorkflowStep, Error, CreatedBy, CreatedAt             string
+	Status, Title, Skill, WorkflowStep, Error, CreatedBy, CreatedAt, TaskStatus string
 	Fork                                                                        bool
 	CostUSD                                                                     float64
 	ContextTokens, ContextWindow                                                int
@@ -159,10 +162,10 @@ type row struct {
 func (m *Manager) load(ctx context.Context, id8 string) (row, error) {
 	var s row
 	err := m.db.QueryRowContext(ctx, `SELECT s.id, s.id8, t.slug, s.harness, s.model, s.effort, s.permission_mode, s.harness_session_id,
-		s.status, s.title, s.skill, s.workflow_step, s.error, s.created_by, s.created_at, s.fork, s.cost_usd, s.context_tokens, s.context_window, s.capabilities
+		s.status, s.title, s.skill, s.workflow_step, s.error, s.created_by, s.created_at, s.fork, s.cost_usd, s.context_tokens, s.context_window, s.capabilities, t.status
 		FROM sessions s JOIN tasks t ON t.id = s.task_id WHERE s.id8 = ?`, id8).Scan(
 		&s.ID, &s.ID8, &s.TaskSlug, &s.Harness, &s.Model, &s.Effort, &s.PermissionMode, &s.HarnessSessionID,
-		&s.Status, &s.Title, &s.Skill, &s.WorkflowStep, &s.Error, &s.CreatedBy, &s.CreatedAt, &s.Fork, &s.CostUSD, &s.ContextTokens, &s.ContextWindow, &s.Capabilities)
+		&s.Status, &s.Title, &s.Skill, &s.WorkflowStep, &s.Error, &s.CreatedBy, &s.CreatedAt, &s.Fork, &s.CostUSD, &s.ContextTokens, &s.ContextWindow, &s.Capabilities, &s.TaskStatus)
 	if errors.Is(err, sql.ErrNoRows) {
 		return row{}, fmt.Errorf("%w: %s", tree.ErrNotFound, addr(id8))
 	}
@@ -184,7 +187,7 @@ func (m *Manager) get(ctx context.Context, a tree.Addr) (tree.Node, error) {
 	}
 	return tree.Node{Title: s.Title, Fields: map[string]any{
 		"id": s.ID, "task": tasks.AddrOf(s.TaskSlug), "harness": s.Harness, "model": s.Model, "effort": s.Effort,
-		"permissionMode": s.PermissionMode, "harnessSessionId": s.HarnessSessionID, "status": s.Status, "skill": s.Skill,
+		"permissionMode": s.PermissionMode, "harnessSessionId": s.HarnessSessionID, "status": s.Status, "taskStatus": s.TaskStatus, "skill": s.Skill,
 		"workflowStep": s.WorkflowStep, "costUsd": s.CostUSD, "contextTokens": s.ContextTokens, "contextWindow": s.ContextWindow, "error": s.Error,
 		"createdBy": s.CreatedBy, "createdAt": s.CreatedAt, "capabilities": caps, "approvals": approvals,
 	}}, nil
