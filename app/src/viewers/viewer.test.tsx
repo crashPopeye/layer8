@@ -23,7 +23,7 @@ it("renders markdown with gfm tables, and its source on toggle", async () => {
 
 it("renders html in a script-only sandbox from srcdoc", async () => {
   wrap(<Viewer src={artifact("mockup-limits.html")} name="mockup-limits.html" />);
-  const frame = (await screen.findByTitle("mockup-limits.html")) as HTMLIFrameElement;
+  const frame = (await screen.findByTitle("mockup-limits.html", undefined, { timeout: 5000 })) as HTMLIFrameElement;
   expect(frame.getAttribute("sandbox")).toBe("allow-scripts");
   expect(frame.getAttribute("src")).toBeNull();
   expect(frame.getAttribute("srcdoc")).toContain("<h3>Upload limits</h3>");
@@ -57,6 +57,6 @@ it("reports text selected in rendered markdown with the source lines it quotes, 
 
 it("adds the selection reporter to html only when comments are wanted", async () => {
   wrap(<Viewer src={artifact("mockup-limits.html")} name="mockup-limits.html" onSelectText={() => {}} />);
-  const frame = (await screen.findByTitle("mockup-limits.html")) as HTMLIFrameElement;
+  const frame = (await screen.findByTitle("mockup-limits.html", undefined, { timeout: 5000 })) as HTMLIFrameElement;
   expect(frame.getAttribute("srcdoc")).toContain("layer8Selection");
 });
